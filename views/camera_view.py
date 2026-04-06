@@ -61,12 +61,13 @@ class SavePhotoThread(QThread):
     """保存照片线程 - 在后台执行所有耗时的保存操作"""
     save_complete = pyqtSignal(bool, str)  # (success, message)
     
-    def __init__(self, user_id, frame, duplicate_checker, user_name):
+    def __init__(self, user_id, frame, duplicate_checker, user_name, collection_id=None):
         super().__init__()
         self.user_id = user_id
         self.frame = frame
         self.duplicate_checker = duplicate_checker
         self.user_name = user_name
+        self.collection_id = collection_id
     
     def run(self):
         """运行保存"""
@@ -115,9 +116,10 @@ class SavePhotoThread(QThread):
                     user_id=self.user_id,
                     operator=operator,
                     status='completed',
-                    notes=f'照片已采集: {os.path.basename(filepath)}'
+                    notes=f'照片已采集: {os.path.basename(filepath)}',
+                    collection_id=self.collection_id
                 )
-                print(f"[INFO] 创建采集记录: record_id={record.id}, status=completed")
+                print(f"[INFO] 创建采集记录: record_id={record.id}, status=completed, collection_id={self.collection_id}")
             
             db.close()
             
@@ -190,6 +192,7 @@ class CameraView(QWidget):
         self.current_user_id = None
         self.current_user_name = None
         self.current_id_photo = None  # 当前身份证照片（从 id_card_view 传入）
+        self.current_collection_id = None  # 当前采集任务ID
         self.last_voice_feedback = {}  # 记录上次播放的语音反馈，避免重复播放
         
         # 相似度计算线程
@@ -777,7 +780,8 @@ class CameraView(QWidget):
                 self.current_user_id,
                 self.current_frame,
                 self.duplicate_checker,
-                self.current_user_name
+                self.current_user_name,
+                self.current_collection_id
             )
             self.save_photo_thread.save_complete.connect(self.on_save_photo_complete)
             self.save_photo_thread.start()
@@ -869,11 +873,12 @@ class CameraView(QWidget):
         except Exception as e:
             print(f"[WARNING] 通知主窗口失败: {e}")
 
-    def set_current_user(self, user_id, user_name, id_photo=None):
+    def set_current_user(self, user_id, user_name, id_photo=None, collection_id=None):
         """设置当前用户（从身份证读卡器调用）"""
         self.current_user_id = user_id
         self.current_user_name = user_name
         self.current_id_photo = id_photo  # 保存身份证照片到内存
+        self.current_collection_id = collection_id  # 保存采集任务ID
         
         # 重置相似度信息
         self.last_similarity = None
@@ -884,13 +889,14 @@ class CameraView(QWidget):
         self.user_name_label.setText(user_name)
         self.user_id_label.setStyleSheet("font-weight: bold; color: green; font-size: 12px;")
         self.user_name_label.setStyleSheet("font-weight: bold; color: green; font-size: 12px;")
-        print(f"[INFO] 设置当前用户: ID={user_id}, 名称={user_name}, 有照片={id_photo is not None}")
+        print(f"[INFO] 设置当前用户: ID={user_id}, 名称={user_name}, 有照片={id_photo is not None}, 采集任务ID={collection_id}")
 
     def clear_current_user(self):
         """清空当前用户选择（从身份证读卡器调用）"""
         self.current_user_id = None
         self.current_user_name = None
         self.current_id_photo = None
+        self.current_collection_id = None
         
         # 重置相似度信息
         self.last_similarity = None
@@ -975,12 +981,16 @@ class CameraView(QWidget):
                 )
                 QMessageBox.information(self, "核验通过", message)
             else:
-                # 核验失败
+                # 核验失败 - 提供更清晰的失败原因
+                similarity = verify_result['similarity']
+                threshold = 0.6  # 60%
                 message = (
                     f"✗ 身份核验失败\n\n"
                     f"用户: {self.current_user_name}\n"
-                    f"相似度: {verify_result['similarity']:.2%}\n\n"
-                    f"原因: {verify_result['message']}"
+                    f"相似度: {similarity:.2%}\n"
+                    f"所需阈值: {threshold:.0%}\n\n"
+                    f"原因: 采集照片与身份证照片相似度不足\n"
+                    f"请确保光线充足、面部清晰、表情自然"
                 )
                 QMessageBox.warning(self, "核验失败", message)
             

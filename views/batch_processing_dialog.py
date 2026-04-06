@@ -106,25 +106,83 @@ class BatchProcessingDialog(QDialog):
         params_group = QGroupBox("处理参数")
         params_layout = QGridLayout(params_group)
         
-        # 裁剪规格
+        # 裁剪规格 - 使用优化后的规格列表
         params_layout.addWidget(QLabel("裁剪规格:"), 0, 0)
         self.crop_combo = QComboBox()
-        self.crop_combo.addItems(['一寸', '二寸', '小二寸', '大一寸', '五寸'])
+        
+        # 导入配置
+        from config.config import PHOTO_SPECS
+        from collections import defaultdict
+        
+        # 按尺寸分组去重
+        size_groups = defaultdict(list)
+        for spec_name, size in PHOTO_SPECS.items():
+            size_groups[size].append(spec_name)
+        
+        # 添加优化后的规格选项
+        for size, specs in size_groups.items():
+            # 新格式: "590x826px 一寸"
+            size_str = f"{size[0]}x{size[1]}px"
+            
+            if len(specs) == 1:
+                # 单一规格
+                display_name = f"{size_str} {specs[0]}"
+                tooltip = f"尺寸: {size[0]}×{size[1]}px"
+            else:
+                # 多规格组
+                display_name = f"{size_str} {specs[0]} 等{len(specs)}种"
+                tooltip = f"相同尺寸 {size[0]}×{size[1]}px:\n" + "\n".join(specs)
+            
+            self.crop_combo.addItem(display_name, specs[0])  # 使用第一个作为代表
+            self.crop_combo.setItemData(self.crop_combo.count()-1, tooltip, Qt.ToolTipRole)
+        
+        # 默认选择一寸
+        for i in range(self.crop_combo.count()):
+            if "一寸" in self.crop_combo.itemText(i):
+                self.crop_combo.setCurrentIndex(i)
+                break
+        
         params_layout.addWidget(self.crop_combo, 0, 1)
         
-        # 背景颜色
+        # 背景颜色 - 使用优化后的颜色列表
         params_layout.addWidget(QLabel("背景颜色:"), 0, 2)
         self.bg_combo = QComboBox()
-        self.bg_combo.addItems(['白色', '蓝色', '红色', '浅蓝色', '灰色'])
+        
+        # 导入背景色配置
+        from config.config import BACKGROUND_COLORS
+        
+        # 添加常用背景色（优先显示基础色）
+        basic_colors = ['白色', '蓝色', '红色', '灰色']
+        for color in basic_colors:
+            if color in BACKGROUND_COLORS:
+                self.bg_combo.addItem(color)
+        
+        # 添加分隔符
+        self.bg_combo.insertSeparator(self.bg_combo.count())
+        
+        # 添加国际标准色
+        intl_colors = ['美国护照蓝', '欧盟护照灰', '英国签证蓝', '日本护照白']
+        for color in intl_colors:
+            if color in BACKGROUND_COLORS:
+                self.bg_combo.addItem(color)
+        
+        # 默认选择蓝色
+        self.bg_combo.setCurrentText('蓝色')
         params_layout.addWidget(self.bg_combo, 0, 3)
         
         # 背景处理模式
         params_layout.addWidget(QLabel("背景模式:"), 0, 4)
         self.bg_mode_combo = QComboBox()
-        self.bg_mode_combo.addItems(['精细模式(推荐)', '智能模式'])
+        self.bg_mode_combo.addItems(['精细模式(推荐)'])
         self.bg_mode_combo.setCurrentIndex(0)  # 默认选择精细模式
-        self.bg_mode_combo.setToolTip("精细模式: 最佳边缘质量，处理时间较长\n智能模式: 平衡质量和速度")
+        self.bg_mode_combo.setToolTip("精细模式: 最佳边缘质量，处理时间较长")
         params_layout.addWidget(self.bg_mode_combo, 0, 5)
+        
+        # Alpha Matte选项
+        self.alpha_matting_check = QCheckBox("启用Alpha Matte（提升边缘质量）")
+        self.alpha_matting_check.setChecked(True)
+        self.alpha_matting_check.setToolTip("启用后可提升头发丝等边缘细节质量，但处理时间略长")
+        params_layout.addWidget(self.alpha_matting_check, 1, 5)
         
         # 美颜选项
         self.beautify_check = QCheckBox("启用美颜")
@@ -144,6 +202,44 @@ class BatchProcessingDialog(QDialog):
         self.contrast_spin.setRange(-100, 100)
         self.contrast_spin.setValue(15)
         params_layout.addWidget(self.contrast_spin, 1, 4)
+        
+        # 批量模式选择
+        mode_layout = QHBoxLayout()
+        mode_layout.addWidget(QLabel("批量模式:"))
+        self.batch_mode_combo = QComboBox()
+        self.batch_mode_combo.addItems(['单规格处理', '多规格生成'])
+        self.batch_mode_combo.setCurrentIndex(0)
+        self.batch_mode_combo.setToolTip(
+            "单规格处理: 每张图片生成一种规格\n"
+            "多规格生成: 每张图片生成多种规格（类似多规格同时生成功能）"
+        )
+        self.batch_mode_combo.currentIndexChanged.connect(self._on_batch_mode_changed)
+        mode_layout.addWidget(self.batch_mode_combo)
+        mode_layout.addStretch()
+        params_layout.addLayout(mode_layout, 2, 5)
+        
+        # 多规格选择按钮（初始隐藏）
+        self.multi_spec_btn = QPushButton("📋 选择多种规格")
+        self.multi_spec_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #17a2b8;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #138496;
+            }
+        """)
+        self.multi_spec_btn.clicked.connect(self._open_multi_spec_selection)
+        self.multi_spec_btn.setVisible(False)
+        params_layout.addWidget(self.multi_spec_btn, 3, 5)
+        
+        # 存储选中的多规格
+        self.selected_multi_specs = []
+        self.selected_multi_colors = []
         
         # 饱和度调整
         params_layout.addWidget(QLabel("饱和度:"), 2, 0)
@@ -284,27 +380,80 @@ class BatchProcessingDialog(QDialog):
         if self.output_path_label.text() == "未选择":
             QMessageBox.warning(self, "警告", "请选择输出目录")
             return
-            
-        # 设置处理参数
-        # 解析背景模式
-        bg_mode_text = self.bg_mode_combo.currentText()
-        if "精细模式" in bg_mode_text:
-            bg_mode = 'refined'
-        else:  # 智能模式
-            bg_mode = 'auto'
         
-        params = {
-            'crop_spec': self.crop_combo.currentText(),
-            'background_color': self.bg_combo.currentText(),
-            'background_mode': bg_mode,  # 新增背景模式参数
-            'beautify_enabled': self.beautify_check.isChecked(),
-            'brightness': self.brightness_spin.value(),
-            'contrast': self.contrast_spin.value(),
-            'saturation': self.saturation_spin.value(),
-            'sharpness': self.sharpness_spin.value(),
-            'output_format': 'jpg',
-            'output_quality': 95
-        }
+        # 检查批量模式
+        is_multi_spec = self.batch_mode_combo.currentText() == '多规格生成'
+        
+        if is_multi_spec:
+            # 多规格模式：检查是否已配置
+            if not self.selected_multi_specs or not self.selected_multi_colors:
+                QMessageBox.warning(self, "警告", "请先点击'选择多种规格'按钮配置要生成的规格和颜色")
+                return
+            
+            # 显示确认信息
+            total_per_image = len(self.selected_multi_specs) * len(self.selected_multi_colors)
+            total_images = self.file_list.count()
+            total_output = total_per_image * total_images
+            
+            message = f"""多规格批量处理确认
+
+📊 处理统计:
+• 输入图片: {total_images} 张
+• 每张生成: {len(self.selected_multi_specs)} 规格 × {len(self.selected_multi_colors)} 颜色 = {total_per_image} 张
+• 总输出: {total_output} 张照片
+
+📋 选中规格: {', '.join(self.selected_multi_specs[:3])}{'...' if len(self.selected_multi_specs) > 3 else ''}
+🎨 选中颜色: {', '.join(self.selected_multi_colors[:3])}{'...' if len(self.selected_multi_colors) > 3 else ''}
+
+⏱️ 预计耗时: {total_output * 3 // 60} 分钟
+
+确定要开始处理吗？"""
+            
+            reply = QMessageBox.question(self, "确认批量处理", message, QMessageBox.Yes | QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                return
+        
+        # 设置处理参数
+        if is_multi_spec:
+            # 多规格模式参数
+            params = {
+                'batch_mode': 'multi_spec',
+                'multi_specs': self.selected_multi_specs,
+                'multi_colors': self.selected_multi_colors,
+                'background_mode': 'refined',  # 多规格模式使用精细模式
+                'use_alpha_matting': self.alpha_matting_check.isChecked(),
+                'beautify_enabled': self.beautify_check.isChecked(),
+                'brightness': self.brightness_spin.value(),
+                'contrast': self.contrast_spin.value(),
+                'saturation': self.saturation_spin.value(),
+                'sharpness': self.sharpness_spin.value(),
+                'output_format': 'jpg',
+                'output_quality': 95
+            }
+        else:
+            # 单规格模式参数
+            bg_mode_text = self.bg_mode_combo.currentText()
+            if "精细模式" in bg_mode_text:
+                bg_mode = 'refined'
+            
+            # 获取实际规格名（处理去重显示）
+            selected_spec_text = self.crop_combo.currentText()
+            actual_spec = self.crop_combo.currentData()  # 获取存储的实际规格名
+            
+            params = {
+                'batch_mode': 'single_spec',
+                'crop_spec': actual_spec,  # 使用实际规格名
+                'background_color': self.bg_combo.currentText(),
+                'background_mode': bg_mode,
+                'use_alpha_matting': self.alpha_matting_check.isChecked(),
+                'beautify_enabled': self.beautify_check.isChecked(),
+                'brightness': self.brightness_spin.value(),
+                'contrast': self.contrast_spin.value(),
+                'saturation': self.saturation_spin.value(),
+                'sharpness': self.sharpness_spin.value(),
+                'output_format': 'jpg',
+                'output_quality': 95
+            }
         
         self.batch_processor.set_batch_params(params)
         
@@ -314,7 +463,8 @@ class BatchProcessingDialog(QDialog):
         self.progress_bar.setValue(0)
         self.status_text.clear()
         
-        self.add_status("开始批量处理...")
+        mode_text = "多规格生成" if is_multi_spec else "单规格处理"
+        self.add_status(f"开始批量处理 ({mode_text})...")
         
         # 启动处理线程
         self.processing_thread = BatchProcessingThread(
@@ -372,14 +522,160 @@ class BatchProcessingDialog(QDialog):
             f"输出目录: {self.output_path_label.text()}"
         )
         
-    def add_status(self, message):
-        """添加状态信息"""
-        self.status_text.append(message)
-        # 滚动到底部
-        scrollbar = self.status_text.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
+    def _on_batch_mode_changed(self, index):
+        """批量模式切换时显示/隐藏多规格选择"""
+        is_multi_spec = self.batch_mode_combo.currentText() == '多规格生成'
+        self.multi_spec_btn.setVisible(is_multi_spec)
+        
+        # 切换到多规格模式时，隐藏单规格选择
+        self.crop_combo.setVisible(not is_multi_spec)
+        self.bg_combo.setVisible(not is_multi_spec)
+        
+        # 更新标签显示
+        if is_multi_spec:
+            self.add_status("💡 多规格模式：点击'选择多种规格'按钮配置要生成的规格和颜色")
+        else:
+            self.add_status("📋 单规格模式：每张图片生成一种规格")
+    
+    def _open_multi_spec_selection(self):
+        """打开多规格选择对话框"""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QCheckBox, QGroupBox, QScrollArea, QWidget, QGridLayout, QPushButton
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("选择多种规格和颜色")
+        dialog.setFixedSize(700, 600)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # 规格选择
+        spec_group = QGroupBox("选择证件照规格")
+        spec_scroll = QScrollArea()
+        spec_widget = QWidget()
+        spec_layout = QGridLayout(spec_widget)
+        
+        spec_checkboxes = {}
+        row, col = 0, 0
+        
+        # 按尺寸分组显示规格
+        from collections import defaultdict
+        from config.config import PHOTO_SPECS
+        
+        size_groups = defaultdict(list)
+        for spec_name in PHOTO_SPECS.keys():
+            size = PHOTO_SPECS[spec_name]
+            size_groups[size].append(spec_name)
+        
+        # 为每个尺寸组创建复选框
+        for size, specs in size_groups.items():
+            if len(specs) == 1:
+                spec_name = specs[0]
+                checkbox = QCheckBox(spec_name)
+            else:
+                group_name = f"{specs[0]} 等{len(specs)}种"
+                checkbox = QCheckBox(group_name)
+                checkbox.setToolTip(f"相同尺寸 {size[0]}×{size[1]}px:\n" + "\n".join(specs))
+                checkbox.specs_group = specs
+            
+            # 默认选中常用规格
+            if any(spec in ['一寸', '小二寸', '美国护照', '欧盟护照'] for spec in specs):
+                checkbox.setChecked(True)
+            
+            size_key = f"{size[0]}x{size[1]}"
+            spec_checkboxes[size_key] = checkbox
+            spec_layout.addWidget(checkbox, row, col)
+            
+            col += 1
+            if col >= 3:
+                col = 0
+                row += 1
+        
+        spec_scroll.setWidget(spec_widget)
+        spec_scroll.setFixedHeight(200)
+        
+        spec_group_layout = QVBoxLayout()
+        spec_group_layout.addWidget(spec_scroll)
+        spec_group.setLayout(spec_group_layout)
+        layout.addWidget(spec_group)
+        
+        # 背景色选择
+        color_group = QGroupBox("选择背景颜色")
+        color_layout = QGridLayout()
+        
+        color_checkboxes = {}
+        row, col = 0, 0
+        
+        from config.config import BACKGROUND_COLORS
+        for color_name in BACKGROUND_COLORS.keys():
+            checkbox = QCheckBox(color_name)
+            
+            # 默认选中常用颜色
+            if color_name in ['白色', '蓝色', '美国护照蓝', '欧盟护照灰']:
+                checkbox.setChecked(True)
+            
+            color_checkboxes[color_name] = checkbox
+            color_layout.addWidget(checkbox, row, col)
+            
+            col += 1
+            if col >= 6:
+                col = 0
+                row += 1
+        
+        color_group.setLayout(color_layout)
+        layout.addWidget(color_group)
+        
+        # 按钮
+        button_layout = QHBoxLayout()
+        
+        ok_btn = QPushButton("确定")
+        ok_btn.clicked.connect(dialog.accept)
+        button_layout.addWidget(ok_btn)
+        
+        cancel_btn = QPushButton("取消")
+        cancel_btn.clicked.connect(dialog.reject)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(button_layout)
+        
+        # 显示对话框
+        if dialog.exec_() == QDialog.Accepted:
+            # 获取选中的规格
+            selected_specs = []
+            for size_key, checkbox in spec_checkboxes.items():
+                if checkbox.isChecked():
+                    if hasattr(checkbox, 'specs_group'):
+                        selected_specs.append(checkbox.specs_group[0])  # 选择代表
+                    else:
+                        selected_specs.append(checkbox.text())
+            
+            # 获取选中的颜色
+            selected_colors = [name for name, checkbox in color_checkboxes.items() if checkbox.isChecked()]
+            
+            if selected_specs and selected_colors:
+                self.selected_multi_specs = selected_specs
+                self.selected_multi_colors = selected_colors
+                
+                total_count = len(selected_specs) * len(selected_colors)
+                self.multi_spec_btn.setText(f"📋 已选择 {len(selected_specs)}规格×{len(selected_colors)}色={total_count}张")
+                self.add_status(f"✅ 多规格配置完成：{len(selected_specs)}种规格 × {len(selected_colors)}种颜色 = {total_count}张/图片")
+            else:
+                QMessageBox.warning(dialog, "警告", "请至少选择一个规格和一个颜色")
         
     def closeEvent(self, event):
+        """关闭事件"""
+        if self.processing_thread and self.processing_thread.isRunning():
+            reply = QMessageBox.question(
+                self, "确认关闭", 
+                "批量处理正在进行中，确定要关闭吗？",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                self.stop_processing()
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.accept()
         """关闭事件"""
         if self.processing_thread and self.processing_thread.isRunning():
             reply = QMessageBox.question(

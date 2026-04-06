@@ -12,32 +12,85 @@ class SmartCropper:
     
     def __init__(self):
         """初始化裁剪器"""
-        # 证件照规格定义 (像素尺寸, DPI=300)
+        # 证件照规格定义 (像素尺寸, DPI=600 保证高质量)
+        # 注：打印时可以缩小到 300 DPI，但处理时保持高分辨率避免模糊
         self.crop_specs = {
+            # 中国标准
             '一寸': {
-                'width': 295, 'height': 413, 'dpi': 300,
+                'width': 590, 'height': 826, 'dpi': 600,
                 'mm_width': 25, 'mm_height': 35,
-                'description': '25mm×35mm 一寸照片'
+                'description': '25mm×35mm 一寸照片（身份证、学生证等）'
             },
             '小二寸': {
-                'width': 413, 'height': 579, 'dpi': 300,
+                'width': 826, 'height': 1158, 'dpi': 600,
                 'mm_width': 35, 'mm_height': 49,
-                'description': '35mm×49mm 小二寸照片（护照）'
+                'description': '35mm×49mm 小二寸照片（护照、港澳通行证）'
             },
             '二寸': {
-                'width': 413, 'height': 626, 'dpi': 300,
+                'width': 826, 'height': 1252, 'dpi': 600,
                 'mm_width': 35, 'mm_height': 53,
-                'description': '35mm×53mm 二寸照片'
+                'description': '35mm×53mm 二寸照片（签证、毕业证等）'
             },
             '大一寸': {
-                'width': 390, 'height': 567, 'dpi': 300,
+                'width': 780, 'height': 1134, 'dpi': 600,
                 'mm_width': 33, 'mm_height': 48,
-                'description': '33mm×48mm 大一寸照片（港澳通行证）'
+                'description': '33mm×48mm 大一寸照片（港澳通行证等）'
             },
+            
+            # 国际标准
+            '美国护照': {
+                'width': 1200, 'height': 1200, 'dpi': 600,
+                'mm_width': 51, 'mm_height': 51,
+                'description': '51mm×51mm 美国护照标准（正方形）'
+            },
+            '欧盟护照': {
+                'width': 826, 'height': 1063, 'dpi': 600,
+                'mm_width': 35, 'mm_height': 45,
+                'description': '35mm×45mm 欧盟护照标准'
+            },
+            '英国签证': {
+                'width': 826, 'height': 1063, 'dpi': 600,
+                'mm_width': 35, 'mm_height': 45,
+                'description': '35mm×45mm 英国签证标准'
+            },
+            '日本护照': {
+                'width': 826, 'height': 1063, 'dpi': 600,
+                'mm_width': 35, 'mm_height': 45,
+                'description': '35mm×45mm 日本护照标准'
+            },
+            '印度签证': {
+                'width': 1200, 'height': 1200, 'dpi': 600,
+                'mm_width': 51, 'mm_height': 51,
+                'description': '51mm×51mm 印度签证标准（正方形）'
+            },
+            '泰国签证': {
+                'width': 944, 'height': 1181, 'dpi': 600,
+                'mm_width': 40, 'mm_height': 50,
+                'description': '40mm×50mm 泰国签证标准'
+            },
+            
+            # 特殊规格
+            '驾驶证': {
+                'width': 472, 'height': 630, 'dpi': 600,
+                'mm_width': 20, 'mm_height': 26.7,
+                'description': '20mm×26.7mm 中国驾驶证'
+            },
+            '社保卡': {
+                'width': 590, 'height': 826, 'dpi': 600,
+                'mm_width': 25, 'mm_height': 35,
+                'description': '25mm×35mm 中国社保卡'
+            },
+            
+            # 大尺寸
             '五寸': {
-                'width': 1050, 'height': 1500, 'dpi': 300,
+                'width': 2100, 'height': 3000, 'dpi': 600,
                 'mm_width': 89, 'mm_height': 127,
                 'description': '89mm×127mm 五寸照片'
+            },
+            '六寸': {
+                'width': 2400, 'height': 3600, 'dpi': 600,
+                'mm_width': 102, 'mm_height': 152,
+                'description': '102mm×152mm 六寸照片'
             }
         }
         
@@ -246,15 +299,33 @@ class SmartCropper:
         return image[y:y+h, x:x+w]
     
     def _resize_to_spec(self, image: np.ndarray, spec_info: Dict) -> np.ndarray:
-        """调整图像到规格尺寸"""
+        """调整图像到规格尺寸 - 智能缩放，避免不必要的质量损失"""
         target_width = spec_info['width']
         target_height = spec_info['height']
+        current_h, current_w = image.shape[:2]
         
-        # 使用高质量的插值方法
+        # 如果当前尺寸已经是目标尺寸，直接返回
+        if current_w == target_width and current_h == target_height:
+            print(f"[DEBUG] 尺寸已匹配，跳过 resize")
+            return image
+        
+        # 计算缩放比例
+        scale_w = target_width / current_w
+        scale_h = target_height / current_h
+        
+        # 如果需要放大，使用 INTER_CUBIC（更平滑）
+        # 如果需要缩小，使用 INTER_AREA（更清晰，避免模糊）
+        if scale_w > 1.0 or scale_h > 1.0:
+            interpolation = cv2.INTER_CUBIC
+            print(f"[DEBUG] 放大图像: {current_w}x{current_h} -> {target_width}x{target_height}")
+        else:
+            interpolation = cv2.INTER_AREA
+            print(f"[DEBUG] 缩小图像: {current_w}x{current_h} -> {target_width}x{target_height}")
+        
         resized = cv2.resize(
             image, 
             (target_width, target_height), 
-            interpolation=cv2.INTER_LANCZOS4
+            interpolation=interpolation
         )
         
         return resized

@@ -1,9 +1,8 @@
-﻿PyQt5>=5.15.0
+﻿numpy>=1.26.0,<2.0.0
 opencv-python>=4.5.0,<4.13.0
 Pillow>=9.0.0
 face-detection-tflite>=0.6.0
 pandas>=1.3.0
-numpy>=1.26.0,<2.0.0
 openpyxl>=3.0.0
 SQLAlchemy>=1.4.0
 python-dateutil>=2.8.0
@@ -17,3 +16,9 @@ onnxruntime>=1.23.0  # CPU推理引擎
 # 人脸识别 (防重复采集和身份核验)
 face-recognition>=1.3.0  # 基于dlib的人脸识别库
 dlib>=19.24.0  # dlib C++库
+
+# 高保真管线 (HiFi Pipeline)
+insightface>=0.7.3       # 高精度人脸检测与地标
+gfpgan>=1.3.8            # 人脸细节增强
+basicsr>=1.4.2           # gfpgan 依赖
+facexlib>=0.3.0          # gfpgan 依赖

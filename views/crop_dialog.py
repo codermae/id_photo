@@ -8,6 +8,7 @@ from PyQt5.QtCore import Qt, QRect, QPoint
 from PyQt5.QtGui import QPainter, QPen, QColor, QPixmap, QImage
 import cv2
 import numpy as np
+from config.config import PHOTO_SPECS
 
 class CropDialog(QDialog):
     """可拖拽裁剪对话框"""
@@ -28,13 +29,9 @@ class CropDialog(QDialog):
         self.drag_start_pos = None
         self.drag_start_rect = None
         
-        # 证件照规格
-        self.specs = {
-            '一寸': (295, 413),      # 25x35mm
-            '小二寸': (413, 579),    # 35x49mm
-            '二寸': (413, 626),      # 35x53mm
-            '大一寸': (390, 567),    # 33x48mm
-        }
+        # 证件照规格：使用全量配置，避免裁剪规格列表不全
+        # PHOTO_SPECS 的 value 为像素尺寸（如 590x826）
+        self.specs = dict(PHOTO_SPECS)
         
         self.current_spec = '一寸'
         

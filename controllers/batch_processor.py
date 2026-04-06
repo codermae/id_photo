@@ -297,8 +297,8 @@ class BatchProcessor:
             
             # 5. 背景替换 - 使用精细模式算法
             bg_color = self.batch_params.get('background_color', 'white')
-            bg_mode = self.batch_params.get('background_mode', 'refined')
-            print(f"[DEBUG] 背景替换为: {bg_color}, 模式: {bg_mode}")
+            use_alpha_matting = self.batch_params.get('use_alpha_matting', True)
+            print(f"[DEBUG] 背景替换为: {bg_color}, Alpha Matte: {use_alpha_matting}")
             
             # 映射背景颜色名称
             color_mapping = {
@@ -315,9 +315,9 @@ class BatchProcessor:
             }
             bg_color_name = color_mapping.get(bg_color, bg_color)
             
-            success, bg_info = processor.change_background(bg_color_name, method=bg_mode, refine_edges=True)
+            success, bg_info = processor.change_background(bg_color_name, method='refined', refine_edges=True, use_alpha_matting=use_alpha_matting)
             if success:
-                print(f"[DEBUG] 背景替换成功，使用{bg_mode}模式")
+                print(f"[DEBUG] 背景替换成功")
             else:
                 self._log_status(f"背景替换失败: {item['input_path']}", "warning")
                 print(f"[DEBUG] 背景替换信息: {bg_info}")

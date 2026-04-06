@@ -103,9 +103,10 @@ class PreciseBackgroundReplacer:
                           bg_color: Union[str, Tuple[int, int, int]], 
                           method: str = 'auto',
                           refine_edges: bool = False,
-                          expand_pixels: int = 0) -> Tuple[np.ndarray, Dict]:
+                          expand_pixels: int = 0,
+                          use_alpha_matting: bool = True) -> Tuple[np.ndarray, Dict]:
         """
-        替换背景 - 使用rembg (U2-Net)高精度算法，直接使用原始输出
+        替换背景 - 使用rembg (U2-Net)高精度算法，支持Alpha Matte
         
         Args:
             image: 输入图像
@@ -113,6 +114,7 @@ class PreciseBackgroundReplacer:
             method: 抠图方法 ('auto', 'rembg', 'traditional', 'grabcut', 'skin_detection', 'combined')
             refine_edges: 是否进行边缘优化（默认False，推荐直接用原始）
             expand_pixels: 边缘调整像素数（默认0，推荐不调整）
+            use_alpha_matting: 是否启用Alpha Matte（默认True，提升边缘质量）
             
         Returns:
             tuple: (处理后的图像, 处理信息)
@@ -128,11 +130,11 @@ class PreciseBackgroundReplacer:
         else:
             bg_rgb = bg_color
         
-        # 选择最佳方法
+        # 选择最佳方法 - 只使用rembg
         if method == 'auto':
-            method = self._select_best_method(image)
+            method = 'rembg'
         
-        # 精细模式 - 使用改进的边缘处理，但保持颜色稳定
+        # 精细模式 - 使用改进的边缘处理
         if method == 'refined':
             try:
                 print("[INFO] 使用改进精细模式进行背景替换（保持颜色稳定）")
@@ -141,97 +143,57 @@ class PreciseBackgroundReplacer:
                 return result, process_info
             except Exception as e:
                 print(f"[WARNING] 改进精细模式处理失败: {e}")
-                print("[INFO] 切换到智能模式")
-                method = 'auto'
+                print("[INFO] 切换到rembg模式")
+                method = 'rembg'
         
-        # 优先使用rembg（直接用原始输出）
-        if method == 'rembg' or (method == 'auto' and self.rembg_available):
+        # 使用rembg
+        if method == 'rembg' and self.rembg_available:
             try:
-                print("[INFO] 使用rembg (U2-Net) 进行背景替换（原始输出，无额外处理）")
-                result, process_info = self._rembg_replace_background(image, bg_rgb, refine_edges=False, expand_pixels=0)
+                print("[INFO] 使用rembg (U2-Net) 进行背景替换")
+                result, process_info = self._rembg_replace_background(image, bg_rgb, refine_edges=False, expand_pixels=0, use_alpha_matting=use_alpha_matting)
                 process_info['method_used'] = 'rembg_raw'
                 return result, process_info
             except Exception as e:
                 print(f"[WARNING] rembg处理失败: {e}")
-                print("[INFO] 切换到传统算法")
-                method = 'traditional'
+                raise
         
-        # 如果method是traditional，切换到auto模式
+        # 如果method是traditional，报错
         if method == 'traditional':
-            print("[INFO] 传统算法已废弃，切换到智能模式")
-            method = 'auto'
+            raise ValueError("传统算法已废弃")
         
-        # 使用传统算法
-        print(f"[INFO] 使用传统算法进行背景替换: {method}")
-        
-        # 生成分割mask
-        mask, mask_info = self._generate_mask(image, method)
-        
-        # 边缘优化
-        if refine_edges:
-            mask = self._refine_edges(image, mask)
-        
-        # 应用背景
-        result = self._apply_background(image, mask, bg_rgb)
-        
-        # 处理信息
-        process_info = {
-            'method': method,
-            'method_used': 'traditional',
-            'background_color': bg_rgb,
-            'mask_quality': self._evaluate_mask_quality(mask),
-            'edges_refined': refine_edges,
-            **mask_info
-        }
-        
-        return result, process_info
+        # 其他方法也报错
+        raise ValueError(f"不支持的方法: {method}")
     
     def _select_best_method(self, image: np.ndarray) -> str:
-        """自动选择最佳抠图方法"""
-        # 优先使用rembg（如果可用）
-        if self.rembg_available:
-            return 'rembg'
-        
-        # 备选传统算法
-        h, w = image.shape[:2]
-        if h * w > 1000000:  # 大图像使用GrabCut
-            return 'combined'
-        else:
-            return 'skin_detection'
+        """自动选择最佳抠图方法 - 只返回rembg"""
+        return 'rembg'
     
     def _generate_mask(self, image: np.ndarray, method: str) -> Tuple[np.ndarray, Dict]:
         """生成分割mask"""
         mask_info = {'method_used': method}
         
         if method == 'rembg' and self.rembg_available:
-            mask = self._rembg_segment(image)
+            mask = self._rembg_segment(image, use_alpha_matting=True)
             mask_info['ai_model'] = 'u2net'
-        elif method == 'grabcut':
-            mask = self._grabcut_segment(image)
-            mask_info['iterations'] = 5
-        elif method == 'skin_detection':
-            mask = self._skin_detection_segment(image)
-            mask_info['skin_ranges'] = len(self.skin_ranges)
-        elif method == 'combined':
-            mask = self._combined_segment(image)
-            mask_info['methods_combined'] = ['skin_detection', 'grabcut']
         else:
-            # 默认使用肤色检测
-            mask = self._skin_detection_segment(image)
-            mask_info['method_used'] = 'skin_detection'
+            # 默认使用rembg
+            mask = self._rembg_segment(image, use_alpha_matting=True)
+            mask_info['ai_model'] = 'u2net'
         
         return mask, mask_info
     
     def _rembg_segment(self, image: np.ndarray, post_process: bool = False, 
-                      expand_pixels: int = 0, smooth_edges: bool = False) -> np.ndarray:
+                      expand_pixels: int = 0, smooth_edges: bool = False,
+                      use_alpha_matting: bool = True) -> np.ndarray:
         """
-        使用rembg进行AI抠图 - 直接使用原始输出，不做额外处理
+        使用rembg进行AI抠图 - 优化版，支持Alpha Matte
         
         Args:
             image: 输入图像
             post_process: 是否进行后处理优化（默认False，直接用原始结果）
             expand_pixels: 边缘扩展像素数（默认0，不调整）
             smooth_edges: 是否平滑边缘（默认False，保持原始）
+            use_alpha_matting: 是否启用Alpha Matte（默认True，提升边缘质量）
         """
         try:
             from PIL import Image
@@ -239,8 +201,19 @@ class PreciseBackgroundReplacer:
             # 转换为PIL图像
             pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
             
-            # AI抠图 - 使用U2-Net模型（直接输出，不做任何处理）
-            output = self.rembg.remove(pil_image, session=self.rembg_session)
+            # AI抠图 - 使用U2-Net模型，启用Alpha Matte提升边缘质量
+            # 优化参数：针对人像优化
+            if use_alpha_matting:
+                output = self.rembg.remove(
+                    pil_image, 
+                    session=self.rembg_session,
+                    alpha_matting=True,
+                    alpha_matting_foreground_threshold=235,
+                    alpha_matting_background_threshold=5,
+                    alpha_matting_erode_size=15
+                )
+            else:
+                output = self.rembg.remove(pil_image, session=self.rembg_session)
             
             # 转换回OpenCV格式并提取alpha通道作为mask
             output_array = np.array(output)
@@ -376,7 +349,8 @@ class PreciseBackgroundReplacer:
         # 1. 使用rembg分割（不做后处理，直接用原始输出）
         mask = self._rembg_segment(image, post_process=False, 
                                    expand_pixels=0, 
-                                   smooth_edges=False)
+                                   smooth_edges=False,
+                                   use_alpha_matting=True)
         
         # 2. 应用背景（不做任何额外处理）
         result = self._apply_background(image, mask, bg_color)
@@ -1293,7 +1267,7 @@ class PreciseBackgroundReplacer:
         try:
             # 1. 使用rembg获取高质量初始mask
             print("[DEBUG] 步骤1: 使用AI模型生成初始mask")
-            initial_mask = self._rembg_segment(image)
+            initial_mask = self._rembg_segment(image, use_alpha_matting=True)
             
             # 2. 改进的边缘优化 - 专注边缘，不改变颜色
             print("[DEBUG] 步骤2: 改进边缘优化处理")
@@ -2043,8 +2017,8 @@ class PreciseBackgroundReplacer:
         # 1. 高级边缘抗锯齿
         result = self._advanced_edge_antialiasing(result, mask)
         
-        # 2. 细节增强和锐化
-        result = self._detail_enhancement(result, original, mask)
+        # 2. 跳过细节增强和锐化 - 避免噪点
+        # result = self._detail_enhancement(result, original, mask)  # 已禁用
         
         # 3. 颜色一致性校正
         result = self._color_consistency_correction(result, original, mask)
@@ -2094,49 +2068,13 @@ class PreciseBackgroundReplacer:
         return result
     
     def _detail_enhancement(self, image: np.ndarray, original: np.ndarray, mask: np.ndarray) -> np.ndarray:
-        """细节增强和锐化"""
-        # 1. 前景区域检测
-        foreground_mask = mask > 128
+        """
+        细节增强 - 移除传统锐化，只信任 CodeFormer 的自然锐度
         
-        if not np.any(foreground_mask):
-            return image
-        
-        # 2. 自适应USM锐化
-        # 计算前景区域的细节复杂度
-        gray_fg = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        laplacian_var = cv2.Laplacian(gray_fg[foreground_mask], cv2.CV_64F).var()
-        
-        # 根据细节复杂度调整锐化强度
-        if laplacian_var > 800:  # 高细节
-            sharpen_strength = 1.2
-            blur_sigma = 0.8
-        elif laplacian_var > 400:  # 中等细节
-            sharpen_strength = 1.5
-            blur_sigma = 1.0
-        else:  # 低细节
-            sharpen_strength = 1.8
-            blur_sigma = 1.2
-        
-        print(f"[DEBUG] 前景细节复杂度: {laplacian_var:.1f}, 锐化强度: {sharpen_strength}")
-        
-        # 3. 应用USM锐化
-        gaussian = cv2.GaussianBlur(image, (0, 0), blur_sigma)
-        unsharp = cv2.addWeighted(image, sharpen_strength, gaussian, -(sharpen_strength-1), 0)
-        
-        # 4. 只在前景区域应用锐化
-        result = image.copy()
-        result[foreground_mask] = unsharp[foreground_mask]
-        
-        # 5. 头发区域特殊处理
-        h, w = mask.shape
-        hair_mask = (mask[:h//2, :] > 128)
-        if np.any(hair_mask):
-            # 头发区域使用更轻的锐化
-            hair_gaussian = cv2.GaussianBlur(image[:h//2, :], (0, 0), 1.5)
-            hair_unsharp = cv2.addWeighted(image[:h//2, :], 1.3, hair_gaussian, -0.3, 0)
-            result[:h//2, :][hair_mask] = hair_unsharp[hair_mask]
-        
-        return result
+        传统锐化会产生大量噪点，已全部移除
+        """
+        print("[DEBUG] 跳过传统锐化，保持自然质感")
+        return image
     
     def _color_consistency_correction(self, image: np.ndarray, original: np.ndarray, mask: np.ndarray) -> np.ndarray:
         """颜色一致性校正"""
@@ -2310,8 +2248,9 @@ class PreciseBackgroundReplacer:
         """超精细后处理 - 修复版，避免脸部变色"""
         print("[DEBUG] 开始超精细后处理...")
         
-        # 1. 轻微边缘锐化，避免过度处理
-        result = self._conservative_edge_sharpening(image, alpha_matte)
+        # 1. 跳过轻微边缘锐化，避免过度处理
+        # result = self._conservative_edge_sharpening(image, alpha_matte)  # 已禁用
+        result = image.copy()
         
         # 2. 保守的颜色校正，避免脸部变色
         result = self._advanced_color_correction(result, original, alpha_matte)
@@ -2480,3 +2419,51 @@ class PreciseBackgroundReplacer:
         }
         
         return result, process_info
+
+    # ------------------------------------------------------------------
+    # 高保真管线入口（新增，不影响原有 refined 模式）
+    # ------------------------------------------------------------------
+
+    def replace_background_hifi(self, image: np.ndarray,
+                                bg_color,
+                                beautify_options: dict = None,
+                                beautify_strengths: dict = None,
+                                use_gfpgan: bool = True):
+        """
+        高保真管线背景替换
+        InsightFace + rembg(isnet) + GFPGAN
+
+        Args:
+            image: 输入图像
+            bg_color: 背景颜色（颜色名称字符串或 BGR tuple）
+            beautify_options: 美颜开关
+            beautify_strengths: 美颜强度
+            use_gfpgan: 是否启用 GFPGAN 增强
+
+        Returns:
+            (处理后图像, 处理信息)
+        """
+        # 解析颜色
+        if isinstance(bg_color, str):
+            if bg_color not in self.background_colors:
+                raise ValueError(f"不支持的背景颜色: {bg_color}")
+            bg_rgb = self.background_colors[bg_color]
+        else:
+            bg_rgb = bg_color
+
+        # 懒加载 HiFi 管线
+        if not hasattr(self, '_hifi_pipeline') or self._hifi_pipeline is None:
+            from controllers.hifi_pipeline import HiFiPipeline
+            self._hifi_pipeline = HiFiPipeline()
+            self._hifi_pipeline.initialize()
+
+        result, info = self._hifi_pipeline.process(
+            image,
+            bg_color=bg_rgb,
+            beautify_options=beautify_options or {},
+            beautify_strengths=beautify_strengths or {},
+            use_gfpgan=use_gfpgan,
+        )
+        info['method_used'] = 'hifi_pipeline'
+        info['pipeline_status'] = self._hifi_pipeline.get_status()
+        return result, info

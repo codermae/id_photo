@@ -93,6 +93,10 @@ class MainWindow(QMainWindow):
         self.id_card_view.user_selected.connect(self.camera_view.set_current_user)
         self.id_card_view.user_cleared.connect(self.camera_view.clear_current_user)
         
+        # 连接数据导入的采集任务更新信号到其他页面
+        self.import_view.collection_changed.connect(self.id_card_view.load_collections)
+        self.import_view.collection_changed.connect(self.process_view.load_collections)
+        
         # 连接标签页切换信号，实现自动刷新
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
         

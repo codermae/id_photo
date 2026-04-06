@@ -229,7 +229,7 @@ class ReportView(QWidget):
             QMessageBox.critical(self, "错误", f"统计失败: {e}")
 
     def export_report(self):
-        """导出报表"""
+        """导出报表 - 按采集任务分类"""
         filepath, _ = QFileDialog.getSaveFileName(
             self, "保存报表", "", "Excel文件 (*.xlsx)"
         )
@@ -241,45 +241,139 @@ class ReportView(QWidget):
                 
                 # 创建Excel工作簿
                 with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
-                    # 统计汇总
-                    stats = self.db.get_collection_stats(start_date, end_date, self.current_collection_id)
-                    summary_data = {
-                        '指标': ['用户总数', '照片总数', '已采集', '待采集', '失败', '完成率'],
-                        '数值': [
-                            self.db.get_user_count(self.current_collection_id),
-                            self.db.get_photo_count(self.current_collection_id),
-                            stats['completed'],
-                            stats['pending'],
-                            stats['failed'],
-                            f"{stats['completion_rate']:.1f}%"
-                        ]
-                    }
-                    summary_df = pd.DataFrame(summary_data)
-                    summary_df.to_excel(writer, sheet_name='统计汇总', index=False)
                     
-                    # 用户列表
-                    users = self.db.get_all_users(self.current_collection_id)
-                    user_data = []
-                    for user in users:
-                        photos = self.db.get_photos_by_user(user.id)
-                        records = self.db.get_records_by_user(user.id)
-                        user_data.append({
-                            'ID': user.id,
-                            '姓名': user.name,
-                            '身份证号': user.id_number,
-                            '性别': user.gender,
-                            '民族': user.nation,
-                            '出生日期': user.birthday,
-                            '地址': user.address,
-                            '照片数': len(photos),
-                            '采集状态': records[-1].status if records else '未采集',
-                        })
-                    user_df = pd.DataFrame(user_data)
-                    user_df.to_excel(writer, sheet_name='用户列表', index=False)
+                    # 如果选择了特定采集任务
+                    if self.current_collection_id is not None:
+                        self._export_single_collection_report(writer, start_date, end_date)
+                    else:
+                        # 导出所有采集任务的分类报表
+                        self._export_all_collections_report(writer, start_date, end_date)
                 
                 QMessageBox.information(self, "成功", f"报表已导出\n{filepath}")
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"导出失败: {e}")
+
+    def _export_single_collection_report(self, writer, start_date, end_date):
+        """导出单个采集任务报表"""
+        collection = self.db.get_collection_by_id(self.current_collection_id)
+        collection_name = f"{collection.name}({collection.organization})" if collection else "未知任务"
+        
+        # 统计汇总
+        stats = self.db.get_collection_stats(start_date, end_date, self.current_collection_id)
+        summary_data = {
+            '采集任务': [collection_name],
+            '用户总数': [self.db.get_user_count(self.current_collection_id)],
+            '照片总数': [self.db.get_photo_count(self.current_collection_id)],
+            '已采集': [stats['completed']],
+            '待采集': [stats['pending']],
+            '失败': [stats['failed']],
+            '完成率': [f"{stats['completion_rate']:.1f}%"],
+            '统计日期': [f"{start_date} 至 {end_date}"]
+        }
+        summary_df = pd.DataFrame(summary_data)
+        summary_df.to_excel(writer, sheet_name='统计汇总', index=False)
+        
+        # 用户详细列表
+        self._export_user_details(writer, self.current_collection_id, collection_name)
+
+    def _export_all_collections_report(self, writer, start_date, end_date):
+        """导出所有采集任务的分类报表"""
+        collections = self.db.get_active_collections()
+        
+        # 总体汇总表
+        summary_data = []
+        total_users = 0
+        total_photos = 0
+        total_completed = 0
+        total_pending = 0
+        total_failed = 0
+        
+        for collection in collections:
+            stats = self.db.get_collection_stats(start_date, end_date, collection.id)
+            user_count = self.db.get_user_count(collection.id)
+            photo_count = self.db.get_photo_count(collection.id)
+            
+            summary_data.append({
+                '采集任务': f"{collection.name}({collection.organization})",
+                '组织机构': collection.organization,
+                '任务描述': collection.description or '',
+                '用户总数': user_count,
+                '照片总数': photo_count,
+                '已采集': stats['completed'],
+                '待采集': stats['pending'],
+                '失败': stats['failed'],
+                '完成率': f"{stats['completion_rate']:.1f}%",
+                '创建时间': collection.created_at.strftime('%Y-%m-%d') if collection.created_at else '',
+                '状态': '活跃' if collection.is_active else '已停用'
+            })
+            
+            total_users += user_count
+            total_photos += photo_count
+            total_completed += stats['completed']
+            total_pending += stats['pending']
+            total_failed += stats['failed']
+        
+        # 添加总计行
+        total_completion_rate = (total_completed / max(1, total_completed + total_pending + total_failed)) * 100
+        summary_data.append({
+            '采集任务': '【总计】',
+            '组织机构': '',
+            '任务描述': '',
+            '用户总数': total_users,
+            '照片总数': total_photos,
+            '已采集': total_completed,
+            '待采集': total_pending,
+            '失败': total_failed,
+            '完成率': f"{total_completion_rate:.1f}%",
+            '创建时间': '',
+            '状态': ''
+        })
+        
+        summary_df = pd.DataFrame(summary_data)
+        summary_df.to_excel(writer, sheet_name='采集任务汇总', index=False)
+        
+        # 为每个采集任务创建详细用户表
+        for collection in collections:
+            sheet_name = f"{collection.name[:20]}用户明细"  # 限制工作表名长度
+            self._export_user_details(writer, collection.id, sheet_name)
+
+    def _export_user_details(self, writer, collection_id, sheet_name):
+        """导出用户详细信息"""
+        users = self.db.get_all_users(collection_id)
+        user_data = []
+        
+        for user in users:
+            photos = self.db.get_photos_by_user(user.id)
+            records = self.db.get_records_by_user(user.id)
+            
+            # 统计不同类型的照片
+            original_photos = [p for p in photos if p.photo_type == 'original']
+            processed_photos = [p for p in photos if p.photo_type == 'processed']
+            
+            # 获取最新记录
+            latest_record = records[-1] if records else None
+            
+            user_data.append({
+                'ID': user.id,
+                '姓名': user.name,
+                '身份证号': user.id_number,
+                '性别': user.gender,
+                '民族': user.nation,
+                '出生日期': user.birthday.strftime('%Y-%m-%d') if user.birthday else '',
+                '地址': user.address,
+                '原始照片数': len(original_photos),
+                '处理照片数': len(processed_photos),
+                '照片总数': len(photos),
+                '采集状态': latest_record.status if latest_record else '未采集',
+                '采集时间': latest_record.created_at.strftime('%Y-%m-%d %H:%M:%S') if latest_record and latest_record.created_at else '',
+                '操作员': latest_record.operator if latest_record else '',
+                '备注': latest_record.notes if latest_record else '',
+                '创建时间': user.created_at.strftime('%Y-%m-%d %H:%M:%S') if user.created_at else ''
+            })
+        
+        if user_data:
+            user_df = pd.DataFrame(user_data)
+            user_df.to_excel(writer, sheet_name=sheet_name, index=False)
 
     def closeEvent(self, event):
         """关闭事件"""

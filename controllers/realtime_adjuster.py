@@ -210,6 +210,8 @@ class RealTimeAdjuster:
         print("[DEBUG] 开始应用图像调整...")
         print(f"[DEBUG] 当前参数: {self.params}")
         
+        # 关键修改：从original_image开始，而不是从current_image
+        # 这样可以确保所有参数都是相对于原始图像的
         result = self.original_image.astype(np.float32)
         
         # 1. 亮度调整

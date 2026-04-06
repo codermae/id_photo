@@ -46,6 +46,24 @@ class ImageProcessor:
         
         return self.current_image
 
+    def load_image_from_array(self, image_array):
+        """从数组加载图像"""
+        if image_array is None:
+            raise ValueError("图像数组不能为空")
+        
+        self.original_image = image_array.copy()
+        self.current_image = image_array.copy()
+        self.quality_score = ImageHelper.get_image_quality_score(self.current_image)
+        
+        # 设置到实时调整器
+        self.realtime_adjuster.set_image(self.current_image)
+        
+        # 重置处理历史
+        self.processing_history = [self.current_image.copy()]
+        self.current_step = 0
+        
+        return self.current_image
+
     def get_current_image(self):
         """获取当前图像"""
         return self.current_image
@@ -105,7 +123,31 @@ class ImageProcessor:
             print(f"手动裁剪失败: {e}")
             return False
 
-    def change_background(self, color_name='白色', method='auto', refine_edges=True):
+    def change_background_hifi(self, color_name='白色',
+                               beautify_options: dict = None,
+                               beautify_strengths: dict = None,
+                               use_gfpgan: bool = True):
+        """高保真管线背景替换（InsightFace + isnet + GFPGAN）"""
+        if self.current_image is None:
+            return False, {}
+        try:
+            result, info = self.bg_replacer.replace_background_hifi(
+                self.current_image,
+                bg_color=color_name,
+                beautify_options=beautify_options,
+                beautify_strengths=beautify_strengths,
+                use_gfpgan=use_gfpgan,
+            )
+            self.current_image = result
+            self._add_to_history(f"HiFi背景替换为{color_name}")
+            return True, info
+        except Exception as e:
+            print(f"HiFi背景替换失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return False, {'error': str(e)}
+
+    def change_background(self, color_name='白色', method='refined', refine_edges=True, use_alpha_matting=True):
         """更换背景色 - 升级为精确背景替换"""
         if self.current_image is None:
             return False, {}
@@ -113,7 +155,7 @@ class ImageProcessor:
         try:
             # 使用精确背景替换
             result_image, process_info = self.bg_replacer.replace_background(
-                self.current_image, color_name, method, refine_edges
+                self.current_image, color_name, method, refine_edges, use_alpha_matting=use_alpha_matting
             )
             
             self.current_image = result_image

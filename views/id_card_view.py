@@ -38,7 +38,7 @@ class IDCardView(QWidget):
     """身份证读取视图"""
     
     # 定义信号：当成功读取身份证并保存用户后发出
-    user_selected = pyqtSignal(int, str, object)  # user_id, user_name, id_photo
+    user_selected = pyqtSignal(int, str, object, int)  # user_id, user_name, id_photo, collection_id
     # 定义信号：当拿走身份证时发出，通知清空用户选择
     user_cleared = pyqtSignal()
 
@@ -360,7 +360,7 @@ class IDCardView(QWidget):
                 QMessageBox.information(self, "提示", f"用户 {user.name} 已在采集列表中")
                 # 发送当前读取的身份证照片，而不是数据库中的
                 print(f"[DEBUG] 用户已存在，发送信号: user_id={user.id}, user_name={user.name}, 有照片={self.current_id_photo is not None}")
-                self.user_selected.emit(user.id, user.name, self.current_id_photo)
+                self.user_selected.emit(user.id, user.name, self.current_id_photo, self.current_collection_id)
                 db.close()
                 return
             
@@ -450,7 +450,7 @@ class IDCardView(QWidget):
             
             # 发出信号，通知拍照采集界面更新用户信息
             print(f"[DEBUG] 发送信号: user_id={user_id}, user_name={user_name}, 有照片={self.current_id_photo is not None}")
-            self.user_selected.emit(user_id, user_name, self.current_id_photo)
+            self.user_selected.emit(user_id, user_name, self.current_id_photo, self.current_collection_id)
             
             # 通知主窗口更新统计
             self.notify_data_changed()

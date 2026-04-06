@@ -4,7 +4,7 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QLabel, QLineEdit, QTableWidget, QTableWidgetItem, 
                              QGroupBox, QMessageBox, QFileDialog, QDateEdit, QComboBox, QDialog)
-from PyQt5.QtCore import Qt, QDate
+from PyQt5.QtCore import Qt, QDate, pyqtSignal
 from utils.database_helper import DatabaseHelper
 from utils.id_card_validator import IDCardValidator
 from datetime import datetime
@@ -139,6 +139,9 @@ class CollectionSelectionDialog(QDialog):
 
 class ImportView(QWidget):
     """数据导入视图"""
+    
+    # 定义信号：当采集任务被创建或更新时发出
+    collection_changed = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -273,6 +276,10 @@ class ImportView(QWidget):
                 self.collection_label.setText(f"{collection.name} ({collection.organization})")
                 self.collection_label.setStyleSheet("color: green; font-weight: bold;")
                 print(f"[INFO] 已选择采集任务: {collection.name} (ID: {self.current_collection_id})")
+                
+                # 发出信号，通知其他页面刷新采集任务列表
+                self.collection_changed.emit()
+                print("[INFO] 已发出采集任务更新信号")
 
     def on_id_changed(self, id_number):
         """身份证号变化时，自动提取出生日期和性别，并进行验证"""
