@@ -86,7 +86,7 @@ class DataView(QWidget):
         
         advanced_filter_layout.addWidget(QLabel("状态:"))
         self.status_filter = QComboBox()
-        self.status_filter.addItems(['全部', '已采集', '待采集', '失败', '无记录'])
+        self.status_filter.addItems(['全部', '已完成', '待处理', '待采集', '无记录'])
         advanced_filter_layout.addWidget(self.status_filter)
         
         refresh_btn = QPushButton("刷新")
@@ -253,37 +253,36 @@ class DataView(QWidget):
                 self.table.setItem(row, 5, QTableWidgetItem(str(user.birthday) if user.birthday else ''))
                 self.table.setItem(row, 6, QTableWidgetItem(user.address or ''))
                 
-                # 获取采集状态
+                # 获取采集状态（四种显示状态：无记录、待采集、待处理、已完成）
                 records = self.db.get_records_by_user(user.id)
-                photos = self.db.get_photos_by_user(user.id)
                 
-                if records:
+                if not records:
+                    # 1. 无记录：没有采集记录
+                    status_text = '无记录'
+                    status_color = QColor(240, 240, 240)  # 灰色
+                else:
+                    # 2-4. 有记录：根据status字段直接判断
                     latest_record = records[-1]
                     status = latest_record.status
                     
-                    # 状态显示和颜色
-                    if status == 'completed':
-                        status_text = '已采集'
-                        status_color = QColor(200, 255, 200)  # 浅绿色
-                    elif status == 'pending':
-                        status_text = '待采集'
-                        status_color = QColor(255, 255, 200)  # 浅黄色
-                    elif status == 'failed':
-                        status_text = '失败'
-                        status_color = QColor(255, 200, 200)  # 浅红色
-                    else:
-                        status_text = '未知'
-                        status_color = QColor(220, 220, 220)  # 浅灰色
-                else:
-                    status_text = '无记录'
-                    status_color = QColor(240, 240, 240)  # 灰色
+                    status_map = {
+                        'completed': ('已完成', QColor(200, 255, 200)),
+                        'processing': ('待处理', QColor(255, 220, 150)),
+                        'pending': ('待采集', QColor(255, 255, 200))
+                    }
+                    
+                    status_text, status_color = status_map.get(
+                        status,
+                        ('未知', QColor(220, 220, 220))
+                    )
                 
                 status_item = QTableWidgetItem(status_text)
                 status_item.setBackground(QBrush(status_color))
                 status_item.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row, 7, status_item)
                 
-                # 照片数量 - 分类统计
+                # 照片数量 - 分类统计（仍需查询照片表以显示照片数量）
+                photos = self.db.get_photos_by_user(user.id)
                 raw_photos = [p for p in photos if p.photo_type == 'raw']
                 processed_photos = [p for p in photos if p.photo_type == 'processed']
                 
@@ -335,36 +334,36 @@ class DataView(QWidget):
                     self.table.setItem(row, 5, QTableWidgetItem(str(user.birthday) if user.birthday else ''))
                     self.table.setItem(row, 6, QTableWidgetItem(user.address or ''))
                     
-                    # 获取采集状态
+                    # 获取采集状态（四种显示状态：无记录、待采集、待处理、已完成）
                     records = self.db.get_records_by_user(user.id)
-                    photos = self.db.get_photos_by_user(user.id)
                     
-                    if records:
+                    if not records:
+                        # 1. 无记录：没有采集记录
+                        status_text = '无记录'
+                        status_color = QColor(240, 240, 240)
+                    else:
+                        # 2-4. 有记录：根据status字段直接判断
                         latest_record = records[-1]
                         status = latest_record.status
                         
-                        if status == 'completed':
-                            status_text = '已采集'
-                            status_color = QColor(200, 255, 200)
-                        elif status == 'pending':
-                            status_text = '待采集'
-                            status_color = QColor(255, 255, 200)
-                        elif status == 'failed':
-                            status_text = '失败'
-                            status_color = QColor(255, 200, 200)
-                        else:
-                            status_text = '未知'
-                            status_color = QColor(220, 220, 220)
-                    else:
-                        status_text = '无记录'
-                        status_color = QColor(240, 240, 240)
+                        status_map = {
+                            'completed': ('已完成', QColor(200, 255, 200)),
+                            'processing': ('待处理', QColor(255, 220, 150)),
+                            'pending': ('待采集', QColor(255, 255, 200))
+                        }
+                        
+                        status_text, status_color = status_map.get(
+                            status,
+                            ('未知', QColor(220, 220, 220))
+                        )
                     
                     status_item = QTableWidgetItem(status_text)
                     status_item.setBackground(QBrush(status_color))
                     status_item.setTextAlignment(Qt.AlignCenter)
                     self.table.setItem(row, 7, status_item)
                     
-                    # 照片数量 - 分类统计
+                    # 照片数量 - 分类统计（仍需查询照片表以显示照片数量）
+                    photos = self.db.get_photos_by_user(user.id)
                     raw_photos = [p for p in photos if p.photo_type == 'raw']
                     processed_photos = [p for p in photos if p.photo_type == 'processed']
                     
@@ -445,9 +444,9 @@ class DataView(QWidget):
                         
                         latest_record = records[-1]
                         status_map = {
-                            '已采集': 'completed',
-                            '待采集': 'pending',
-                            '失败': 'failed'
+                            '已完成': 'completed',
+                            '待处理': 'processing',
+                            '待采集': 'pending'
                         }
                         
                         if latest_record.status != status_map.get(status_val):
@@ -496,36 +495,36 @@ class DataView(QWidget):
                 self.table.setItem(row, 5, QTableWidgetItem(str(user.birthday) if user.birthday else ''))
                 self.table.setItem(row, 6, QTableWidgetItem(user.address or ''))
                 
-                # 获取采集状态
+                # 获取采集状态（四种显示状态：无记录、待采集、待处理、已完成）
                 records = self.db.get_records_by_user(user.id)
-                photos = self.db.get_photos_by_user(user.id)
                 
-                if records:
+                if not records:
+                    # 1. 无记录：没有采集记录
+                    status_text = '无记录'
+                    status_color = QColor(240, 240, 240)
+                else:
+                    # 2-4. 有记录：根据status字段直接判断
                     latest_record = records[-1]
                     status = latest_record.status
                     
-                    if status == 'completed':
-                        status_text = '✅ 已采集'
-                        status_color = QColor(200, 255, 200)
-                    elif status == 'pending':
-                        status_text = '⏳ 待采集'
-                        status_color = QColor(255, 255, 200)
-                    elif status == 'failed':
-                        status_text = '❌ 失败'
-                        status_color = QColor(255, 200, 200)
-                    else:
-                        status_text = '❓ 未知'
-                        status_color = QColor(220, 220, 220)
-                else:
-                    status_text = '⚠️ 无记录'
-                    status_color = QColor(240, 240, 240)
+                    status_map = {
+                        'completed': ('已完成', QColor(200, 255, 200)),
+                        'processing': ('待处理', QColor(255, 220, 150)),
+                        'pending': ('待采集', QColor(255, 255, 200))
+                    }
+                    
+                    status_text, status_color = status_map.get(
+                        status,
+                        ('未知', QColor(220, 220, 220))
+                    )
                 
                 status_item = QTableWidgetItem(status_text)
                 status_item.setBackground(QBrush(status_color))
                 status_item.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row, 7, status_item)
                 
-                # 照片数量 - 分类统计
+                # 照片数量 - 分类统计（仍需查询照片表以显示照片数量）
+                photos = self.db.get_photos_by_user(user.id)
                 raw_photos = [p for p in photos if p.photo_type == 'raw']
                 processed_photos = [p for p in photos if p.photo_type == 'processed']
                 
@@ -558,11 +557,12 @@ class DataView(QWidget):
         if records:
             latest_record = records[-1]
             status_map = {
-                'completed': '已采集',
-                'pending': '待采集',
-                'failed': '失败'
+                'completed': '已完成',
+                'processing': '待处理',
+                'pending': '待采集'
             }
             status_text = status_map.get(latest_record.status, '未知')
+            
             status_info = f"""
         采集状态: {status_text}
         采集日期: {latest_record.collection_date}
@@ -788,21 +788,21 @@ class DataView(QWidget):
             
             users = self.db.get_all_users()
             
-            # 筛选用户
+            # 筛选用户（四种显示状态：无记录、待采集、待处理、已完成）
             filtered_users = []
             for user in users:
                 records = self.db.get_records_by_user(user.id)
                 
                 if status_text == '全部':
                     filtered_users.append(user)
-                elif status_text == '已采集':
+                elif status_text == '已完成':
                     if records and records[-1].status == 'completed':
+                        filtered_users.append(user)
+                elif status_text == '待处理':
+                    if records and records[-1].status == 'processing':
                         filtered_users.append(user)
                 elif status_text == '待采集':
                     if records and records[-1].status == 'pending':
-                        filtered_users.append(user)
-                elif status_text == '失败':
-                    if records and records[-1].status == 'failed':
                         filtered_users.append(user)
                 elif status_text == '无记录':
                     if not records:
@@ -819,29 +819,26 @@ class DataView(QWidget):
                 self.table.setItem(row, 4, QTableWidgetItem(user.nation or ''))
                 self.table.setItem(row, 5, QTableWidgetItem(str(user.birthday) if user.birthday else ''))
                 
-                # 获取采集状态
+                # 获取采集状态（四种显示状态：无记录、待采集、待处理、已完成）
                 records = self.db.get_records_by_user(user.id)
-                photos = self.db.get_photos_by_user(user.id)
                 
-                if records:
+                if not records:
+                    status_text = '无记录'
+                    status_color = QColor(240, 240, 240)
+                else:
                     latest_record = records[-1]
                     status = latest_record.status
                     
-                    if status == 'completed':
-                        status_text = '已采集'
-                        status_color = QColor(200, 255, 200)
-                    elif status == 'pending':
-                        status_text = '待采集'
-                        status_color = QColor(255, 255, 200)
-                    elif status == 'failed':
-                        status_text = '失败'
-                        status_color = QColor(255, 200, 200)
-                    else:
-                        status_text = '未知'
-                        status_color = QColor(220, 220, 220)
-                else:
-                    status_text = '无记录'
-                    status_color = QColor(240, 240, 240)
+                    status_map = {
+                        'completed': ('已完成', QColor(200, 255, 200)),
+                        'processing': ('待处理', QColor(255, 220, 150)),
+                        'pending': ('待采集', QColor(255, 255, 200))
+                    }
+                    
+                    status_text, status_color = status_map.get(
+                        status,
+                        ('未知', QColor(220, 220, 220))
+                    )
                 
                 status_item = QTableWidgetItem(status_text)
                 status_item.setBackground(QBrush(status_color))

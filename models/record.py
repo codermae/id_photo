@@ -15,7 +15,7 @@ class CollectionRecord(Base):
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
     collection_date = Column(Date, default=datetime.now, index=True)
     operator = Column(String(50))  # 操作员
-    status = Column(String(20), default='pending')  # completed/pending/failed
+    status = Column(String(20), default='pending')  # completed/processing/pending
     notes = Column(Text)  # 备注
     created_at = Column(DateTime, default=datetime.now)
 

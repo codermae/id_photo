@@ -146,18 +146,33 @@ class MainWindow(QMainWindow):
 
 
     def update_status(self):
-        """更新状态栏"""
+        """更新状态栏 - 与统计报表页面保持一致"""
         from utils.database_helper import DatabaseHelper
         
         try:
             db = DatabaseHelper()
-            user_count = db.get_user_count()
-            photo_count = db.get_photo_count()
+            
+            # 获取用户和照片总数
+            users = db.get_all_users()
+            total_users = len(users)
+            total_photos = sum(len(db.get_photos_by_user(u.id)) for u in users)
+            
+            # 获取统计数据
             stats = db.get_collection_stats()
+            
+            # 计算无记录用户数
+            no_record_count = 0
+            for user in users:
+                records = db.get_records_by_user(user.id)
+                if not records:
+                    no_record_count += 1
+            
             db.close()
             
-            status_text = (f"用户总数: {user_count} | 照片总数: {photo_count} | "
-                          f"已采集: {stats['completed']} | 待采集: {stats['pending']} | "
+            # 状态栏显示（与统计报表页面一致，不加颜色）
+            status_text = (f"用户总数: {total_users} | 照片总数: {total_photos} | "
+                          f"已完成: {stats['completed']} | 待处理: {stats['processing']} | "
+                          f"待采集: {stats['pending']} | 无记录: {no_record_count} | "
                           f"完成率: {stats['completion_rate']:.1f}%")
             self.status_bar.showMessage(status_text)
         except Exception as e:

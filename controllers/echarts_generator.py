@@ -3,6 +3,7 @@ ECharts 图表生成器 - 生成 ECharts 配置
 """
 import json
 from datetime import datetime, timedelta
+from models.record import CollectionRecord
 
 
 class EChartsGenerator:
@@ -14,13 +15,16 @@ class EChartsGenerator:
         data = []
         
         if stats.get('completed', 0) > 0:
-            data.append({'value': stats['completed'], 'name': '已采集', 'itemStyle': {'color': '#5CB87A'}})
+            data.append({'value': stats['completed'], 'name': '已完成', 'itemStyle': {'color': '#5CB87A'}})
+        
+        if stats.get('processing', 0) > 0:
+            data.append({'value': stats['processing'], 'name': '待处理', 'itemStyle': {'color': '#FAC858'}})
         
         if stats.get('pending', 0) > 0:
-            data.append({'value': stats['pending'], 'name': '待采集', 'itemStyle': {'color': '#FAC858'}})
+            data.append({'value': stats['pending'], 'name': '待采集', 'itemStyle': {'color': '#E6A23C'}})
         
-        if stats.get('failed', 0) > 0:
-            data.append({'value': stats['failed'], 'name': '失败', 'itemStyle': {'color': '#EE6666'}})
+        if stats.get('no_record', 0) > 0:
+            data.append({'value': stats['no_record'], 'name': '无记录', 'itemStyle': {'color': '#909399'}})
         
         return {
             'tooltip': {'trigger': 'item', 'formatter': '{b}: {c} ({d}%)'},
@@ -140,30 +144,78 @@ class EChartsGenerator:
     
     @staticmethod
     def generate_success_rate_trend_chart(start_date, end_date, db, collection_id):
-        """生成成功率趋势折线图"""
+        """生成完成率趋势折线图（三率对比）
+        
+        显示三条趋势线：
+        1. 完成率 = 截止到当天累计已完成数 / 用户总数 × 100%
+        2. 处理率 = 截止到当天累计(已完成+待处理)数 / 用户总数 × 100%
+        3. 采集率 = 截止到当天累计(已完成+待处理+待采集)数 / 用户总数 × 100%
+        
+        关系：采集率 ≥ 处理率 ≥ 完成率
+        """
         dates = []
-        success_rates = []
+        completion_rates = []  # 完成率
+        processing_rates = []  # 处理率
+        collection_rates = []  # 采集率
+        
+        # 获取用户总数（包含无记录用户）
+        total_users = db.get_user_count(collection_id)
         
         current_date = start_date
         while current_date <= end_date:
             dates.append(current_date.strftime('%m-%d'))
             
             try:
-                records = db.get_records_by_date(current_date, collection_id)
-                if records:
-                    completed = len([r for r in records if r.status == 'completed'])
-                    total = len([r for r in records if r.status in ['completed', 'pending', 'failed']])
-                    rate = (completed / total * 100) if total > 0 else 0
-                else:
-                    rate = 0
-            except:
-                rate = 0
+                # 基础查询
+                base_query = db.db.query(CollectionRecord).filter(
+                    CollectionRecord.collection_date <= current_date
+                )
+                
+                if collection_id:
+                    base_query = base_query.filter(CollectionRecord.collection_id == collection_id)
+                elif db.current_collection_id:
+                    base_query = base_query.filter(CollectionRecord.collection_id == db.current_collection_id)
+                
+                # 1. 完成率：只统计已完成
+                completed_query = base_query.filter(CollectionRecord.status == 'completed')
+                cumulative_completed = completed_query.count()
+                completion_rate = (cumulative_completed / total_users * 100) if total_users > 0 else 0
+                
+                # 2. 处理率：统计已完成 + 待处理
+                processed_query = base_query.filter(
+                    CollectionRecord.status.in_(['completed', 'processing'])
+                )
+                cumulative_processed = processed_query.count()
+                processing_rate = (cumulative_processed / total_users * 100) if total_users > 0 else 0
+                
+                # 3. 采集率：统计已完成 + 待处理 + 待采集
+                collected_query = base_query.filter(
+                    CollectionRecord.status.in_(['completed', 'processing', 'pending'])
+                )
+                cumulative_collected = collected_query.count()
+                collection_rate = (cumulative_collected / total_users * 100) if total_users > 0 else 0
+                
+            except Exception as e:
+                print(f"[ERROR] 计算完成率失败: {e}")
+                completion_rate = 0
+                processing_rate = 0
+                collection_rate = 0
             
-            success_rates.append(rate)
+            completion_rates.append(round(completion_rate, 2))
+            processing_rates.append(round(processing_rate, 2))
+            collection_rates.append(round(collection_rate, 2))
             current_date = current_date + timedelta(days=1)
         
         return {
-            'tooltip': {'trigger': 'axis'},
+            'title': {'text': '采集进度趋势', 'left': 'center'},
+            'tooltip': {
+                'trigger': 'axis',
+                'formatter': '{b}<br/>{a0}: {c0}%<br/>{a1}: {c1}%<br/>{a2}: {c2}%'
+            },
+            'legend': {
+                'data': ['完成率', '处理率', '采集率'],
+                'top': '30px'
+            },
             'dataZoom': [
                 {
                     'type': 'inside',
@@ -175,14 +227,41 @@ class EChartsGenerator:
                 }
             ],
             'xAxis': {'type': 'category', 'data': dates, 'boundaryGap': False},
-            'yAxis': {'type': 'value', 'min': 0, 'max': 100},
-            'series': [{
-                'type': 'line',
-                'data': success_rates,
-                'smooth': True,
-                'itemStyle': {'color': '#5470C6'},
-                'areaStyle': {'color': 'rgba(84, 112, 198, 0.2)'}
-            }]
+            'yAxis': {
+                'type': 'value', 
+                'min': 0, 
+                'max': 100,
+                'axisLabel': {'formatter': '{value}%'}
+            },
+            'series': [
+                {
+                    'name': '完成率',
+                    'type': 'line',
+                    'data': completion_rates,
+                    'smooth': True,
+                    'itemStyle': {'color': '#5CB87A'},
+                    'lineStyle': {'width': 2},
+                    'areaStyle': {'color': 'rgba(92, 184, 122, 0.1)'}
+                },
+                {
+                    'name': '处理率',
+                    'type': 'line',
+                    'data': processing_rates,
+                    'smooth': True,
+                    'itemStyle': {'color': '#FAC858'},
+                    'lineStyle': {'width': 2},
+                    'areaStyle': {'color': 'rgba(250, 200, 88, 0.1)'}
+                },
+                {
+                    'name': '采集率',
+                    'type': 'line',
+                    'data': collection_rates,
+                    'smooth': True,
+                    'itemStyle': {'color': '#5470C6'},
+                    'lineStyle': {'width': 2},
+                    'areaStyle': {'color': 'rgba(84, 112, 198, 0.1)'}
+                }
+            ]
         }
     
     @staticmethod

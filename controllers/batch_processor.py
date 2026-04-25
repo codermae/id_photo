@@ -413,6 +413,9 @@ class BatchProcessor:
                 item['quality_score'] = processor.get_quality_score()
                 item['file_size_after'] = os.path.getsize(output_path)
                 
+                # 更新数据库状态
+                self._update_database_status(item['input_path'], output_path)
+                
                 self._log_status(f"处理完成: {item['input_path']}", "success")
                 return True
             else:
@@ -614,6 +617,10 @@ class BatchProcessor:
             if successful_count > 0:
                 item['status'] = 'completed'
                 item['processing_time'] = time.time() - start_time
+                
+                # 更新数据库状态（多规格处理）
+                self._update_database_status(item['input_path'], output_directory)
+                
                 self._log_status(f"多规格处理完成: {item['input_path']} - 成功 {successful_count}/{total_combinations}", "success")
                 return True
             else:
@@ -876,3 +883,120 @@ class BatchProcessor:
             time_multiplier += 0.3
         
         return len(self.image_queue) * base_time_per_file * time_multiplier
+
+    
+    def _update_database_status(self, input_path: str, output_path: str):
+        """
+        更新数据库中用户的采集状态为已完成
+        
+        Args:
+            input_path: 输入文件路径
+            output_path: 输出文件路径（可能是文件或目录）
+        """
+        try:
+            from utils.database_helper import DatabaseHelper
+            
+            # 从文件名中提取用户ID
+            filename = os.path.basename(input_path)
+            parts = filename.split('_')
+            
+            user_id = None
+            
+            # 格式1: raw_{user_id}_{timestamp}.jpg
+            if filename.startswith('raw_') and len(parts) >= 3:
+                try:
+                    user_id = int(parts[1])
+                    print(f"[DEBUG] 从文件名提取用户ID: {user_id}")
+                except (ValueError, IndexError):
+                    print(f"[WARNING] 无法从文件名提取用户ID: {filename}")
+                    return
+            
+            # 格式2: {id_number}_{timestamp}.jpg
+            elif len(parts) >= 2:
+                potential_id = parts[0]
+                if potential_id.isdigit() and len(potential_id) in [15, 18]:
+                    # 通过身份证号查询用户ID
+                    db = DatabaseHelper()
+                    user = db.get_user_by_id_number(potential_id)
+                    if user:
+                        user_id = user.id
+                        print(f"[DEBUG] 通过身份证号找到用户ID: {user_id}")
+                    db.close()
+            
+            if user_id is None:
+                print(f"[WARNING] 无法识别用户，跳过数据库更新: {filename}")
+                return
+            
+            # 更新数据库
+            db = DatabaseHelper()
+            
+            # 添加照片记录
+            if os.path.isfile(output_path):
+                # 单规格处理：单个文件
+                file_size = os.path.getsize(output_path)
+                photo = db.add_photo(
+                    user_id=user_id,
+                    photo_type='processed',
+                    file_path=output_path,
+                    file_size=file_size
+                )
+                print(f"[INFO] 添加照片记录: photo_id={photo.id}, user_id={user_id}, path={output_path}")
+            elif os.path.isdir(output_path):
+                # 多规格处理：扫描输出目录，添加所有相关照片
+                print(f"[INFO] 多规格处理，扫描输出目录添加照片记录")
+                
+                # 从输入文件名提取基础名称
+                base_name = os.path.splitext(os.path.basename(input_path))[0]
+                
+                # 扫描输出目录中所有相关文件
+                added_count = 0
+                for file in os.listdir(output_path):
+                    # 检查文件是否属于当前用户（文件名包含基础名称）
+                    if file.startswith(base_name) and file.lower().endswith(('.jpg', '.jpeg', '.png')):
+                        file_path = os.path.join(output_path, file)
+                        if os.path.isfile(file_path):
+                            file_size = os.path.getsize(file_path)
+                            photo = db.add_photo(
+                                user_id=user_id,
+                                photo_type='processed',
+                                file_path=file_path,
+                                file_size=file_size
+                            )
+                            added_count += 1
+                            print(f"[INFO] 添加照片记录: photo_id={photo.id}, user_id={user_id}, file={file}")
+                
+                print(f"[INFO] 多规格处理完成，共添加 {added_count} 条照片记录")
+            else:
+                print(f"[WARNING] 输出路径既不是文件也不是目录: {output_path}")
+            
+            # 更新采集记录状态
+            existing_records = db.get_records_by_user(user_id)
+            if existing_records:
+                # 更新最新的记录为已完成
+                latest_record = existing_records[-1]
+                if latest_record.status != 'completed':
+                    latest_record.status = 'completed'
+                    latest_record.notes = f'批量处理完成: {os.path.basename(output_path)}'
+                    db.db.commit()
+                    print(f"[INFO] 更新采集记录状态为 completed: record_id={latest_record.id}, user_id={user_id}")
+                else:
+                    print(f"[INFO] 采集记录已经是 completed 状态: record_id={latest_record.id}")
+            else:
+                # 创建新的采集记录
+                import getpass
+                operator = getpass.getuser()
+                record = db.add_record(
+                    user_id=user_id,
+                    operator=operator,
+                    status='completed',
+                    notes=f'批量处理完成: {os.path.basename(output_path)}'
+                )
+                print(f"[INFO] 创建采集记录: record_id={record.id}, status=completed, user_id={user_id}")
+            
+            db.close()
+            print(f"[SUCCESS] 数据库状态更新成功: user_id={user_id}")
+            
+        except Exception as e:
+            print(f"[ERROR] 更新数据库状态失败: {e}")
+            import traceback
+            traceback.print_exc()

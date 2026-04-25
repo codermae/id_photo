@@ -98,28 +98,28 @@ class SavePhotoThread(QThread):
             print("[INFO] 提取并保存人脸特征...")
             self.duplicate_checker.save_face_encoding(self.user_id, self.frame)
             
-            # 4. 创建或更新采集记录
+            # 4. 创建或更新采集记录（拍照后更新为processing待处理状态）
             print("[INFO] 更新采集记录...")
             existing_records = db.get_records_by_user(self.user_id)
             if existing_records:
-                # 更新最新的记录为已完成
+                # 拍照后更新状态为processing（待处理）
                 latest_record = existing_records[-1]
-                latest_record.status = 'completed'
+                latest_record.status = 'processing'
                 latest_record.notes = f'照片已采集: {os.path.basename(filepath)}'
                 db.db.commit()
-                print(f"[INFO] 更新采集记录状态为 completed: record_id={latest_record.id}")
+                print(f"[INFO] 更新采集记录: record_id={latest_record.id}, status=processing")
             else:
-                # 创建新的采集记录
+                # 创建新的采集记录（processing状态）
                 import getpass
                 operator = getpass.getuser()
                 record = db.add_record(
                     user_id=self.user_id,
                     operator=operator,
-                    status='completed',
+                    status='processing',
                     notes=f'照片已采集: {os.path.basename(filepath)}',
                     collection_id=self.collection_id
                 )
-                print(f"[INFO] 创建采集记录: record_id={record.id}, status=completed, collection_id={self.collection_id}")
+                print(f"[INFO] 创建采集记录: record_id={record.id}, status=processing, collection_id={self.collection_id}")
             
             db.close()
             

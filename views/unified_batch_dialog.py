@@ -594,7 +594,13 @@ class UnifiedBatchDialog(QDialog):
     
     def stop_processing(self):
         """停止处理"""
-        self.add_status("处理已停止")
+        if self.batch_processor:
+            self.batch_processor.stop_batch_processing()
+            self.add_status("正在停止批量处理，请稍候...")
+            self.add_status("当前正在处理的文件将完成后停止")
+        else:
+            self.add_status("处理已停止")
+        
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
     

@@ -3,7 +3,7 @@
 """
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QLabel, QComboBox, QSlider, QGroupBox, QMessageBox, 
-                             QFileDialog, QSpinBox, QCheckBox, QGridLayout, QDialog, 
+                             QFileDialog, QSpinBox, QCheckBox, QRadioButton, QButtonGroup, QGridLayout, QDialog, 
                              QInputDialog, QScrollArea, QProgressDialog)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap, QImage
@@ -130,39 +130,20 @@ class ProcessView(QWidget):
         right_layout = QVBoxLayout(right_widget)
         right_layout.setSpacing(8)  # 减小间距
         
-        # 规格选择（紧凑版）
-        spec_group = QGroupBox("规格")
+        # 规格选择（紧凑版 - 单选）
+        spec_group = QGroupBox("规格（单选）")
         print("[DEBUG] 创建规格组...")
         spec_layout = QVBoxLayout()
         spec_layout.setSpacing(4)
         
-        # 快速选择按钮
-        spec_quick_btn_layout = QHBoxLayout()
-        select_all_spec_btn = QPushButton("全选")
-        select_all_spec_btn.setMaximumWidth(60)
-        select_all_spec_btn.clicked.connect(self.select_all_specs)
-        spec_quick_btn_layout.addWidget(select_all_spec_btn)
-        
-        select_common_spec_btn = QPushButton("常用")
-        select_common_spec_btn.setMaximumWidth(60)
-        select_common_spec_btn.clicked.connect(self.select_common_specs)
-        spec_quick_btn_layout.addWidget(select_common_spec_btn)
-        
-        clear_spec_btn = QPushButton("清空")
-        clear_spec_btn.setMaximumWidth(60)
-        clear_spec_btn.clicked.connect(self.clear_specs)
-        spec_quick_btn_layout.addWidget(clear_spec_btn)
-        
-        spec_quick_btn_layout.addStretch()
-        spec_layout.addLayout(spec_quick_btn_layout)
-        
-        # 规格复选框（折叠显示相同尺寸，保留tooltip）
-        print("[DEBUG] 开始创建规格复选框...")
+        # 规格单选按钮（折叠显示相同尺寸，保留tooltip）
+        print("[DEBUG] 开始创建规格单选按钮...")
         spec_grid = QGridLayout()
         spec_grid.setSpacing(2)
         
-        self.spec_checkboxes = {}
-        print(f"[DEBUG] 初始化 spec_checkboxes: {type(self.spec_checkboxes)}")
+        self.spec_radio_buttons = {}
+        self.spec_button_group = QButtonGroup(self)  # 创建按钮组实现单选
+        print(f"[DEBUG] 初始化 spec_radio_buttons: {type(self.spec_radio_buttons)}")
         print("[DEBUG] 准备进入 try 块...")
         
         try:
@@ -185,28 +166,29 @@ class ProcessView(QWidget):
                     display_name = f"{size_str} {specs[0]}"
                     tooltip = f"相同尺寸 {size[0]}×{size[1]}px (共{len(specs)}种):\n" + "\n".join(specs)
                 
-                checkbox = QCheckBox(display_name)
-                checkbox.setToolTip(tooltip)
-                checkbox.spec_name = specs[0]  # 保存实际规格名
+                radio_button = QRadioButton(display_name)
+                radio_button.setToolTip(tooltip)
+                radio_button.spec_name = specs[0]  # 保存实际规格名
                 
-                # 默认仅选中一寸（精确匹配，不包括"大一寸"）
+                # 默认选中一寸（精确匹配，不包括"大一寸"）
                 if specs[0] == "一寸":
-                    checkbox.setChecked(True)
+                    radio_button.setChecked(True)
                 
                 size_key = f"{size[0]}x{size[1]}"
-                self.spec_checkboxes[size_key] = checkbox
-                spec_grid.addWidget(checkbox, row, col)
+                self.spec_radio_buttons[size_key] = radio_button
+                self.spec_button_group.addButton(radio_button)
+                spec_grid.addWidget(radio_button, row, col)
                 
                 col += 1
                 if col >= 3:  # 每行3个
                     col = 0
                     row += 1
             
-            print(f"[DEBUG] spec_checkboxes 创建完成，共 {len(self.spec_checkboxes)} 个")
+            print(f"[DEBUG] spec_radio_buttons 创建完成，共 {len(self.spec_radio_buttons)} 个")
             spec_layout.addLayout(spec_grid)
             print("[DEBUG] spec_grid 添加到布局完成")
         except Exception as e:
-            print(f"[ERROR] 创建规格复选框失败: {e}")
+            print(f"[ERROR] 创建规格单选按钮失败: {e}")
             import traceback
             traceback.print_exc()
             raise
@@ -214,47 +196,29 @@ class ProcessView(QWidget):
         spec_group.setLayout(spec_layout)
         right_layout.addWidget(spec_group)
         
-        # 背景色选择（紧凑版）
-        bg_group = QGroupBox("背景色")
+        # 背景色选择（紧凑版 - 单选）
+        bg_group = QGroupBox("背景色（单选）")
         bg_layout = QVBoxLayout()
         bg_layout.setSpacing(4)
         
-        # 快速选择按钮
-        bg_quick_btn_layout = QHBoxLayout()
-        select_all_bg_btn = QPushButton("全选")
-        select_all_bg_btn.setMaximumWidth(60)
-        select_all_bg_btn.clicked.connect(self.select_all_colors)
-        bg_quick_btn_layout.addWidget(select_all_bg_btn)
-        
-        select_basic_bg_btn = QPushButton("常用")
-        select_basic_bg_btn.setMaximumWidth(60)
-        select_basic_bg_btn.clicked.connect(self.select_basic_colors)
-        bg_quick_btn_layout.addWidget(select_basic_bg_btn)
-        
-        clear_bg_btn = QPushButton("清空")
-        clear_bg_btn.setMaximumWidth(60)
-        clear_bg_btn.clicked.connect(self.clear_colors)
-        bg_quick_btn_layout.addWidget(clear_bg_btn)
-        
-        bg_quick_btn_layout.addStretch()
-        bg_layout.addLayout(bg_quick_btn_layout)
-        
-        # 背景色复选框（紧凑布局）
+        # 背景色单选按钮（紧凑布局）
         bg_grid = QGridLayout()
         bg_grid.setSpacing(2)
         
-        self.bg_checkboxes = {}
+        self.bg_radio_buttons = {}
+        self.bg_button_group = QButtonGroup(self)  # 创建按钮组实现单选
         row, col = 0, 0
         
         for color_name in BACKGROUND_COLORS.keys():
-            checkbox = QCheckBox(color_name)
+            radio_button = QRadioButton(color_name)
             
-            # 默认仅选中灰色
+            # 默认选中灰色
             if color_name == '灰色':
-                checkbox.setChecked(True)
+                radio_button.setChecked(True)
             
-            self.bg_checkboxes[color_name] = checkbox
-            bg_grid.addWidget(checkbox, row, col)
+            self.bg_radio_buttons[color_name] = radio_button
+            self.bg_button_group.addButton(radio_button)
+            bg_grid.addWidget(radio_button, row, col)
             
             col += 1
             if col >= 3:  # 每行3个
@@ -263,8 +227,8 @@ class ProcessView(QWidget):
         
         bg_layout.addLayout(bg_grid)
         
-        # 高级背景选项
-        advanced_bg_label = QLabel("高级背景效果:")
+        # 高级背景选项（保持复选框，可多选）
+        advanced_bg_label = QLabel("高级背景效果（可多选）:")
         advanced_bg_label.setStyleSheet("font-weight: bold; font-size: 12px; color: #333;")
         bg_layout.addWidget(advanced_bg_label)
         
@@ -451,19 +415,62 @@ class ProcessView(QWidget):
                 self.current_image_path = filepath
                 self.original_image = image.copy()  # 保存原始图像
                 
-                # 从文件名中提取身份证号
+                # 从文件名中提取身份证号或用户ID
                 filename = os.path.basename(filepath)
-                # 文件名格式: {id_number}_{timestamp}.jpg 或 {id_number}_{spec}_{bg_color}_{timestamp}.jpg
+                # 支持两种文件名格式:
+                # 1. raw_{user_id}_{timestamp}.jpg (测试数据格式)
+                # 2. {id_number}_{timestamp}.jpg (实际拍照格式)
                 parts = filename.split('_')
                 self.current_user_id = None
                 user_name = None
                 
-                if len(parts) >= 2:
+                db = DatabaseHelper()
+                
+                # 格式1: raw_{user_id}_{timestamp}.jpg
+                if filename.startswith('raw_') and len(parts) >= 3:
+                    try:
+                        user_id = int(parts[1])
+                        user = db.get_user_by_id(user_id)
+                        if user:
+                            # 检查用户是否属于当前采集任务
+                            if self.current_collection_id is None or user.collection_id == self.current_collection_id:
+                                print(f"[DEBUG] 用户找到 (通过user_id): {user.name} (ID: {user.id})")
+                                user_name = user.name
+                                self.current_user_id = user.id
+                                print(f"[INFO] 用户识别成功: {user.name} (用户ID: {user_id})")
+                            else:
+                                print(f"[WARNING] 用户 {user.name} 不属于当前采集任务")
+                                QMessageBox.warning(
+                                    self,
+                                    "警告",
+                                    f"用户 {user.name} 不属于选定的采集任务\n\n请选择正确的采集任务"
+                                )
+                                db.close()
+                                return
+                        else:
+                            print(f"[WARNING] 用户ID {user_id} 不存在")
+                            QMessageBox.warning(
+                                self,
+                                "警告",
+                                f"用户ID {user_id} 不存在数据库中"
+                            )
+                            db.close()
+                            return
+                    except (ValueError, IndexError) as e:
+                        print(f"[WARNING] 无法解析用户ID: {filename}, 错误: {e}")
+                        QMessageBox.warning(
+                            self,
+                            "警告",
+                            f"文件名格式错误，无法解析用户ID\n\n格式应为: raw_{{用户ID}}_{{时间戳}}.jpg"
+                        )
+                        db.close()
+                        return
+                
+                # 格式2: {id_number}_{timestamp}.jpg
+                elif len(parts) >= 2:
                     potential_id = parts[0]
                     # 验证是否是有效的身份证号（15或18位数字）
                     if potential_id.isdigit() and len(potential_id) in [15, 18]:
-                        # 查询用户是否存在
-                        db = DatabaseHelper()
                         print(f"[DEBUG] 查询身份证号: {potential_id}")
                         print(f"[DEBUG] 采集任务ID: {self.current_collection_id}")
                         
@@ -473,35 +480,37 @@ class ProcessView(QWidget):
                         if user:
                             print(f"[DEBUG] 用户找到: {user.name} (ID: {user.id}, 采集任务ID: {user.collection_id})")
                             user_name = user.name
-                            # 用户已经通过采集任务过滤，所以一定属于该采集任务
                             self.current_user_id = user.id
-                            print(f"[INFO] 用户识别成功: {user.name} (身份证: {potential_id}, 采集任务: {self.current_collection_id})")
+                            print(f"[INFO] 用户识别成功: {user.name} (身份证: {potential_id})")
                         else:
-                            print(f"[WARNING] 身份证号 {potential_id} 在采集任务 {self.current_collection_id} 中不存在")
+                            print(f"[WARNING] 身份证号 {potential_id} 在采集任务中不存在")
                             QMessageBox.warning(
                                 self,
                                 "警告",
                                 f"身份证号 {potential_id} 在选定的采集任务中不存在\n\n请检查：\n1. 是否选择了正确的采集任务\n2. 用户是否已添加到该采集任务"
                             )
                             db.close()
-                            return  # 不显示图像
-                        db.close()
+                            return
                     else:
                         print(f"[WARNING] 无法从文件名中提取有效的身份证号: {filename}")
                         QMessageBox.warning(
                             self,
                             "警告",
-                            f"文件名格式错误，无法识别身份证号\n\n格式应为: {{身份证号}}_{{时间戳}}.jpg"
+                            f"文件名格式错误，无法识别身份证号\n\n支持的格式：\n1. raw_{{用户ID}}_{{时间戳}}.jpg\n2. {{身份证号}}_{{时间戳}}.jpg"
                         )
-                        return  # 不显示图像
+                        db.close()
+                        return
                 else:
                     print(f"[WARNING] 文件名格式不符合预期: {filename}")
                     QMessageBox.warning(
                         self,
                         "警告",
-                        f"文件名格式错误\n\n格式应为: {{身份证号}}_{{时间戳}}.jpg"
+                        f"文件名格式错误\n\n支持的格式：\n1. raw_{{用户ID}}_{{时间戳}}.jpg\n2. {{身份证号}}_{{时间戳}}.jpg"
                     )
-                    return  # 不显示图像
+                    db.close()
+                    return
+                
+                db.close()
                 
                 # 只有用户识别成功才显示图像
                 self.display_image(image)
@@ -660,27 +669,31 @@ class ProcessView(QWidget):
             QMessageBox.warning(self, "警告", "没有加载图像")
             return
 
-        # 获取选中的规格和颜色
-        selected_specs = [cb.spec_name for cb in self.spec_checkboxes.values() if cb.isChecked()]
-        selected_colors = [name for name, cb in self.bg_checkboxes.items() if cb.isChecked()]
+        # 获取选中的规格和颜色（单选）
+        selected_spec = None
+        for rb in self.spec_radio_buttons.values():
+            if rb.isChecked():
+                selected_spec = rb.spec_name
+                break
         
-        if not selected_specs:
-            QMessageBox.warning(self, "警告", "请至少选择一个规格")
+        selected_color = None
+        for name, rb in self.bg_radio_buttons.items():
+            if rb.isChecked():
+                selected_color = name
+                break
+        
+        if not selected_spec:
+            QMessageBox.warning(self, "警告", "请选择一个规格")
             return
         
-        if not selected_colors:
-            QMessageBox.warning(self, "警告", "请至少选择一个背景色")
-            return
-        
-        # 如果选择了多个规格或颜色，直接生成多规格
-        if len(selected_specs) > 1 or len(selected_colors) > 1:
-            self.generate_multi_spec(selected_specs, selected_colors)
+        if not selected_color:
+            QMessageBox.warning(self, "警告", "请选择一个背景色")
             return
         
         # 单规格单颜色处理
         try:
-            spec = selected_specs[0]
-            bg_color = selected_colors[0]
+            spec = selected_spec
+            bg_color = selected_color
             
             # 新的美颜处理 - 使用独立控制
             beautify_options = {
@@ -941,22 +954,31 @@ class ProcessView(QWidget):
             user_name = user.name
             user_id_number = user.id_number
             
-            # 获取当前选择的规格和背景色
-            selected_specs = [cb.spec_name for cb in self.spec_checkboxes.values() if cb.isChecked()]
-            selected_colors = [name for name, cb in self.bg_checkboxes.items() if cb.isChecked()]
+            # 获取当前选择的规格和背景色（单选）
+            selected_spec = None
+            for rb in self.spec_radio_buttons.values():
+                if rb.isChecked():
+                    selected_spec = rb.spec_name
+                    break
             
-            if not selected_specs:
-                QMessageBox.warning(self, "警告", "请至少选择一个规格")
+            selected_color = None
+            for name, rb in self.bg_radio_buttons.items():
+                if rb.isChecked():
+                    selected_color = name
+                    break
+            
+            if not selected_spec:
+                QMessageBox.warning(self, "警告", "请选择一个规格")
                 db.close()
                 return
             
-            if not selected_colors:
-                QMessageBox.warning(self, "警告", "请至少选择一个背景色")
+            if not selected_color:
+                QMessageBox.warning(self, "警告", "请选择一个背景色")
                 db.close()
                 return
             
-            spec = selected_specs[0]
-            bg_color = selected_colors[0]
+            spec = selected_spec
+            bg_color = selected_color
             
             print(f"[INFO] 开始保存处理后照片: 用户={user_name}, 规格={spec}, 背景={bg_color}")
             
@@ -984,7 +1006,7 @@ class ProcessView(QWidget):
             )
             print(f"[INFO] 添加照片记录: photo_id={photo.id}")
             
-            # 创建或更新采集记录
+            # 创建或更新采集记录（处理后状态为已完成）
             existing_records = db.get_records_by_user(self.current_user_id)
             if existing_records:
                 # 更新最新的记录为已完成
@@ -1030,38 +1052,6 @@ class ProcessView(QWidget):
         dialog = UnifiedBatchDialog(self)
         dialog.exec_()
     
-    def select_all_specs(self):
-        """全选规格"""
-        for checkbox in self.spec_checkboxes.values():
-            checkbox.setChecked(True)
-    
-    def select_common_specs(self):
-        """选择常用规格"""
-        common_sizes = [(590, 826), (826, 1158), (826, 1252), (780, 1134)]
-        for size_key, checkbox in self.spec_checkboxes.items():
-            w, h = map(int, size_key.split('x'))
-            checkbox.setChecked((w, h) in common_sizes)
-    
-    def clear_specs(self):
-        """清空规格选择"""
-        for checkbox in self.spec_checkboxes.values():
-            checkbox.setChecked(False)
-    
-    def select_all_colors(self):
-        """全选颜色"""
-        for checkbox in self.bg_checkboxes.values():
-            checkbox.setChecked(True)
-    
-    def select_basic_colors(self):
-        """选择基础颜色"""
-        basic_colors = ['白色', '蓝色', '红色', '灰色']
-        for name, checkbox in self.bg_checkboxes.items():
-            checkbox.setChecked(name in basic_colors)
-    
-    def clear_colors(self):
-        """清空颜色选择"""
-        for checkbox in self.bg_checkboxes.values():
-            checkbox.setChecked(False)
     
     def _apply_advanced_background_effects(self):
         """应用高级背景效果（渐变、纹理、虚化）"""
@@ -1092,12 +1082,17 @@ class ProcessView(QWidget):
             
             h, w = current_image.shape[:2]
             
-            # 获取背景色
-            selected_colors = [name for name, cb in self.bg_checkboxes.items() if cb.isChecked()]
-            if selected_colors:
+            # 获取背景色（单选）
+            selected_color = None
+            for name, rb in self.bg_radio_buttons.items():
+                if rb.isChecked():
+                    selected_color = name
+                    break
+            
+            if selected_color:
                 from config.config import BACKGROUND_COLORS
                 # 转换RGB到BGR
-                color1_rgb = BACKGROUND_COLORS.get(selected_colors[0], (67, 142, 219))
+                color1_rgb = BACKGROUND_COLORS.get(selected_color, (67, 142, 219))
                 color1 = (color1_rgb[2], color1_rgb[1], color1_rgb[0])  # RGB转BGR
             else:
                 color1 = (67, 142, 219)  # 默认蓝色

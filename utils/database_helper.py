@@ -284,7 +284,11 @@ class DatabaseHelper:
 
     # ========== 统计操作 ==========
     def get_collection_stats(self, start_date=None, end_date=None, collection_id=None):
-        """获取采集统计"""
+        """获取采集统计
+        
+        完成率 = 已完成数 / 用户总数 × 100%
+        （包含无记录用户）
+        """
         query = self.db.query(CollectionRecord)
         
         # 如果指定了采集任务，只统计该任务的数据
@@ -301,15 +305,18 @@ class DatabaseHelper:
         records = query.all()
         total = len(records)
         completed = len([r for r in records if r.status == 'completed'])
+        processing = len([r for r in records if r.status == 'processing'])
         pending = len([r for r in records if r.status == 'pending'])
-        failed = len([r for r in records if r.status == 'failed'])
+        
+        # 获取用户总数（包含无记录用户）
+        total_users = self.get_user_count(collection_id)
 
         return {
             'total': total,
             'completed': completed,
+            'processing': processing,
             'pending': pending,
-            'failed': failed,
-            'completion_rate': (completed / total * 100) if total > 0 else 0
+            'completion_rate': (completed / total_users * 100) if total_users > 0 else 0
         }
 
     def get_user_count(self, collection_id=None):
