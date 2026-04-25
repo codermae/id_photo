@@ -15,6 +15,9 @@ class CropDialog(QDialog):
     
     def __init__(self, image, parent=None):
         super().__init__(parent)
+        self.setWindowTitle("手动裁剪")
+        # 删除右上角的问号
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.original_image = image.copy()
         self.display_image = None
         self.scale_factor = 1.0

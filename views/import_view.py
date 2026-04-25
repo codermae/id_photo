@@ -17,8 +17,12 @@ class CollectionSelectionDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("选择或创建采集任务")
         self.setGeometry(200, 200, 500, 300)
+        # 删除右上角的问号
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.selected_collection_id = None
         self.init_ui()
+        # 居中显示
+        self.center_on_parent()
     
     def init_ui(self):
         """初始化界面"""
@@ -93,6 +97,22 @@ class CollectionSelectionDialog(QDialog):
         except Exception as e:
             print(f"[ERROR] 加载采集任务失败: {e}")
             self.collection_combo.addItem("加载失败", None)
+    
+    def center_on_parent(self):
+        """在父窗口中居中显示"""
+        if self.parent():
+            parent_geometry = self.parent().geometry()
+            x = parent_geometry.x() + (parent_geometry.width() - self.width()) // 2
+            y = parent_geometry.y() + (parent_geometry.height() - self.height()) // 2
+            self.move(x, y)
+        else:
+            # 如果没有父窗口，在屏幕中心显示
+            from PyQt5.QtWidgets import QApplication
+            screen = QApplication.primaryScreen()
+            screen_geometry = screen.geometry()
+            x = (screen_geometry.width() - self.width()) // 2
+            y = (screen_geometry.height() - self.height()) // 2
+            self.move(x, y)
     
     def use_selected(self):
         """使用选中的采集任务"""
@@ -251,6 +271,18 @@ class ImportView(QWidget):
         self.preview_table = QTableWidget()
         self.preview_table.setColumnCount(6)
         self.preview_table.setHorizontalHeaderLabels(['姓名', '身份证号', '性别', '民族', '出生日期', '地址'])
+        
+        # 设置列宽
+        self.preview_table.setColumnWidth(0, 80)      # 姓名
+        self.preview_table.setColumnWidth(1, 200)     # 身份证号（较长）
+        self.preview_table.setColumnWidth(2, 60)      # 性别
+        self.preview_table.setColumnWidth(3, 80)      # 民族
+        self.preview_table.setColumnWidth(4, 150)     # 出生日期
+        self.preview_table.setColumnWidth(5, 200)     # 地址（较长）
+        
+        # 设置表格自动填充宽度
+        self.preview_table.horizontalHeader().setStretchLastSection(True)
+        
         batch_layout.addWidget(self.preview_table)
         
         # 确认导入按钮

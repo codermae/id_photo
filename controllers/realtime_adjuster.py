@@ -266,88 +266,39 @@ class RealTimeAdjuster:
         return image + brightness
     
     def _adjust_contrast(self, image: np.ndarray, contrast: int) -> np.ndarray:
-        """调整对比度 - 超级增强版，效果非常明显"""
-        print(f"[DEBUG] 超级增强版对比度调整: {contrast}")
+        """调整对比度 - 改进版，效果明显且不会变灰"""
+        print(f"[DEBUG] 对比度调整: {contrast}")
         
         if contrast == 0:
             return image
         
-        # 超级增强版对比度调整算法
-        if abs(contrast) <= 15:
-            # 小幅调整使用超级敏感的线性方法
-            alpha = 1.0 + (contrast / 20.0)  # 从30改为20，进一步增加敏感度
-            beta = -contrast * 2.0  # 从1.5增加到2.0
-            adjusted = cv2.convertScaleAbs(image, alpha=alpha, beta=beta)
-            print(f"[DEBUG] 使用超级敏感线性对比度调整, alpha={alpha:.2f}, beta={beta:.1f}")
+        # 改进的对比度调整算法 - 避免变灰问题
+        # 使用标准的对比度公式：output = (input - 128) * factor + 128
+        
+        if contrast > 0:
+            # 增加对比度
+            # 范围: 0-100 映射到 1.0-3.0 的因子
+            factor = 1.0 + (contrast / 50.0)  # 更平缓的增长
+            
+            # 使用标准的对比度调整公式
+            result = image.astype(np.float32)
+            result = (result - 128) * factor + 128
+            result = np.clip(result, 0, 255).astype(np.uint8)
+            
+            print(f"[DEBUG] 增加对比度, factor={factor:.2f}")
         else:
-            # 大幅调整使用极强的算法
-            if contrast > 0:
-                # 增加对比度：使用极强的S曲线 + 增强的直方图均衡化
-                factor = 1 + (contrast / 20.0)  # 从30改为20，极大增加敏感度
-                
-                # 1. 先应用极强S曲线
-                s_curve_result = self._apply_ultra_enhanced_s_curve_contrast(image, factor)
-                
-                # 2. 再应用增强的局部直方图均衡化
-                if contrast > 30:
-                    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(6,6))  # 增强参数
-                    lab = cv2.cvtColor(s_curve_result, cv2.COLOR_BGR2LAB)
-                    l, a, b = cv2.split(lab)
-                    l_enhanced = clahe.apply(l)
-                    enhanced_lab = cv2.merge([l_enhanced, a, b])
-                    clahe_result = cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2BGR)
-                    
-                    # 与S曲线结果混合，增加CLAHE权重
-                    adjusted = cv2.addWeighted(s_curve_result, 0.5, clahe_result, 0.5, 0)
-                    print(f"[DEBUG] 使用极强S曲线+增强CLAHE对比度, factor={factor:.2f}")
-                else:
-                    adjusted = s_curve_result
-                    print(f"[DEBUG] 使用极强S曲线对比度, factor={factor:.2f}")
-            else:
-                # 降低对比度：极明显的压缩 + 强高斯模糊柔化
-                factor = max(0.1, 1 + (contrast / 20.0))  # 从30改为20，极大增加敏感度
-                
-                # 1. 极强对比度压缩
-                compressed = ((image.astype(np.float32) - 128) * factor + 128)
-                compressed = np.clip(compressed, 0, 255).astype(np.uint8)
-                
-                # 2. 强高斯模糊进一步柔化
-                if contrast < -30:
-                    blurred = cv2.GaussianBlur(compressed, (5, 5), 1.0)  # 增强模糊
-                    adjusted = cv2.addWeighted(compressed, 0.6, blurred, 0.4, 0)  # 增加模糊权重
-                    print(f"[DEBUG] 使用极强压缩+强模糊降低对比度, factor={factor:.2f}")
-                else:
-                    adjusted = compressed
-                    print(f"[DEBUG] 使用极强压缩降低对比度, factor={factor:.2f}")
-        
-        return adjusted
-    
-    def _apply_ultra_enhanced_s_curve_contrast(self, image: np.ndarray, factor: float) -> np.ndarray:
-        """应用极强的S曲线对比度调整"""
-        # 创建极强的S曲线查找表
-        lut = np.zeros(256, dtype=np.uint8)
-        
-        for i in range(256):
-            # 归一化到0-1
-            x = i / 255.0
+            # 降低对比度
+            # 范围: -100-0 映射到 0.3-1.0 的因子
+            factor = max(0.3, 1.0 + (contrast / 100.0))  # 更平缓的衰减
             
-            # 极强的S曲线函数
-            # 使用极陡峭的sigmoid函数
-            steepness = factor * 3  # 从2增加到3，极大增加陡峭度
-            midpoint = 0.5
+            # 使用标准的对比度调整公式
+            result = image.astype(np.float32)
+            result = (result - 128) * factor + 128
+            result = np.clip(result, 0, 255).astype(np.uint8)
             
-            # 极强的S曲线公式
-            if x < midpoint:
-                # 暗部：极强的压暗
-                y = midpoint * pow(2 * x, steepness) / pow(2 * midpoint, steepness - 1)
-            else:
-                # 亮部：极强的提亮
-                y = midpoint + (1 - midpoint) * pow(2 * (x - midpoint), 1/steepness) / pow(2 * (1 - midpoint), 1/steepness - 1)
-            
-            lut[i] = int(np.clip(y * 255, 0, 255))
+            print(f"[DEBUG] 降低对比度, factor={factor:.2f}")
         
-        # 应用查找表
-        return cv2.LUT(image, lut)
+        return result
     
     def _apply_s_curve_contrast(self, image: np.ndarray, factor: float) -> np.ndarray:
         """应用S曲线对比度增强"""

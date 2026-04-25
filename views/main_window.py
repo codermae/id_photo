@@ -60,10 +60,13 @@ class MainWindow(QMainWindow):
         # 创建主布局
         main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
         
-        # 创建工具栏
-        toolbar_layout = self.create_toolbar()
-        main_layout.addLayout(toolbar_layout)
+        # 创建顶部容器 - 包含Tab和按钮
+        top_container = QWidget()
+        top_layout = QHBoxLayout(top_container)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(0)
         
         # 创建标签页
         self.tab_widget = QTabWidget()
@@ -107,41 +110,40 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.data_view, "数据管理")
         self.tab_widget.addTab(self.report_view, "统计报表")
         
-        main_layout.addWidget(self.tab_widget)
+        # 创建按钮容器
+        button_container = QWidget()
+        button_layout = QHBoxLayout(button_container)
+        button_layout.setContentsMargins(10, 0, 10, 0)  #容器内边距
+        button_layout.setSpacing(8) #按钮间距
+        
+        # 备份恢复按钮
+        backup_btn = QPushButton("备份恢复")
+        backup_btn.clicked.connect(self.open_backup_dialog)
+        button_layout.addWidget(backup_btn)
+        
+        # 帮助按钮
+        help_btn = QPushButton("帮助")
+        help_btn.clicked.connect(self.show_help_dialog)
+        button_layout.addWidget(help_btn)
+        
+        # 关于按钮
+        about_btn = QPushButton("关于")
+        about_btn.clicked.connect(self.show_about)
+        button_layout.addWidget(about_btn)
+        
+        # 将按钮容器添加到 Tab 栏右上角
+        self.tab_widget.setCornerWidget(button_container, Qt.TopRightCorner)
+        
+        # 添加Tab栏到顶部布局
+        top_layout.addWidget(self.tab_widget)
+        
+        main_layout.addWidget(top_container)
         
         # 创建状态栏
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.update_status()
 
-    def create_toolbar(self):
-        """创建工具栏"""
-        toolbar_layout = QHBoxLayout()
-        toolbar_layout.setContentsMargins(10, 5, 10, 5)
-        
-        # 标题
-        title_label = QLabel("证件照采集及处理系统")
-        title_font = QFont()
-        title_font.setPointSize(14)
-        title_font.setBold(True)
-        title_label.setFont(title_font)
-        
-        toolbar_layout.addWidget(title_label)
-        toolbar_layout.addStretch()
-        
-        # 帮助按钮
-        help_btn = QPushButton("帮助")
-        help_btn.setMaximumWidth(80)
-        help_btn.clicked.connect(self.show_help)
-        toolbar_layout.addWidget(help_btn)
-        
-        # 关于按钮
-        about_btn = QPushButton("关于")
-        about_btn.setMaximumWidth(80)
-        about_btn.clicked.connect(self.show_about)
-        toolbar_layout.addWidget(about_btn)
-        
-        return toolbar_layout
 
     def update_status(self):
         """更新状态栏"""
@@ -193,6 +195,20 @@ class MainWindow(QMainWindow):
         from views.batch_processing_dialog import BatchProcessingDialog
         
         dialog = BatchProcessingDialog(self)
+        dialog.exec_()
+    
+    def open_backup_dialog(self):
+        """打开备份恢复对话框"""
+        from views.backup_dialog import BackupDialog
+        
+        dialog = BackupDialog(parent=self)
+        dialog.exec_()
+    
+    def show_help_dialog(self):
+        """显示帮助对话框"""
+        from views.help_dialog import HelpDialog
+        
+        dialog = HelpDialog(parent=self)
         dialog.exec_()
 
     def show_help(self):

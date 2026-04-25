@@ -236,7 +236,7 @@ class BatchProcessor:
     
     def _process_single_file(self, item: Dict, output_directory: str) -> bool:
         """
-        处理单个文件 - 修复版，确保与单独处理一致
+        处理单个文件 - 支持多规格多颜色
         
         Args:
             item: 文件信息字典
@@ -252,7 +252,45 @@ class BatchProcessor:
             print(f"[DEBUG] 输入文件: {item['input_path']}")
             print(f"[DEBUG] 输出目录: {output_directory}")
             
-            # 创建图像处理器实例 - 确保正确初始化
+            # 检查是否是多规格多颜色模式
+            multi_specs = self.batch_params.get('multi_specs', [])
+            multi_colors = self.batch_params.get('multi_colors', [])
+            
+            if multi_specs and multi_colors:
+                # 多规格多颜色模式
+                print(f"[DEBUG] 多规格多颜色模式: {len(multi_specs)}规格 × {len(multi_colors)}颜色")
+                return self._process_multi_spec_file(item, output_directory, multi_specs, multi_colors)
+            else:
+                # 单规格单颜色模式
+                print(f"[DEBUG] 单规格单颜色模式")
+                return self._process_single_spec_file(item, output_directory)
+                
+        except Exception as e:
+            # 处理失败
+            item['status'] = 'failed'
+            item['error'] = str(e)
+            item['processing_time'] = time.time() - start_time
+            
+            self._log_status(f"处理失败: {item['input_path']} - {e}", "error")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def _process_single_spec_file(self, item: Dict, output_directory: str) -> bool:
+        """
+        处理单个文件 - 单规格单颜色
+        
+        Args:
+            item: 文件信息字典
+            output_directory: 输出目录
+            
+        Returns:
+            bool: 是否处理成功
+        """
+        start_time = time.time()
+        
+        try:
+            # 创建图像处理器实例
             processor = ImageProcessor(self.ai_processor)
             
             # 加载图像
@@ -262,29 +300,56 @@ class BatchProcessor:
                 raise Exception("无法加载图像")
             print(f"[DEBUG] 图像加载成功: {loaded_image.shape}")
             
-            # 简化批量处理 - 只做基本处理，避免复杂参数调整
+            # 简化批量处理 - 只做基本处理
             print(f"[DEBUG] 使用简化批量处理模式")
-            
-            # 跳过预设应用，避免复杂的参数调整
             print(f"[DEBUG] 跳过预设应用，避免复杂参数调整")
-            
-            # 跳过复杂的参数调整，避免图像"花掉"
             print(f"[DEBUG] 跳过亮度、对比度、饱和度、锐化等复杂调整")
             
-            # 3. 简单的美颜处理（如果启用）
+            # 美颜处理
             if self.batch_params.get('beautify_enabled', False):
                 beautify_strength = self.batch_params.get('beautify_strength', 0.5)
-                print(f"[DEBUG] 应用简单美颜，强度: {beautify_strength}")
-                processor.set_beautify_strength(beautify_strength)
-                success = processor.beautify()
-                if success:
-                    print(f"[DEBUG] 美颜处理成功")
+                print(f"[DEBUG] 应用美颜，强度: {beautify_strength}")
+                
+                # 使用高级美颜功能
+                from controllers.advanced_beautify import AdvancedBeautify
+                beautify_processor = AdvancedBeautify(self.ai_processor)
+                
+                # 配置美颜选项
+                beautify_options = {
+                    'skin_smooth': True,        # 磨皮
+                    'remove_blemishes': True,   # 祛痘
+                    'eye_enhance': True,        # 眼部增强
+                    'lip_enhance': True,        # 唇部增强
+                    'teeth_whiten': True,       # 牙齿美白
+                    'face_slim': False,
+                    'eye_enlarge': False,
+                    'nose_enhance': False
+                }
+                
+                # 配置强度
+                beautify_strengths = {
+                    'smooth_strength': beautify_strength,
+                    'eye_enhance_strength': beautify_strength * 0.6,
+                    'lip_enhance_strength': beautify_strength * 0.4,
+                    'blemish_strength': beautify_strength * 0.8
+                }
+                
+                # 应用美颜
+                beautified_image_array, beautify_info = beautify_processor.selective_beautify(
+                    processor.get_current_image(),
+                    beautify_options,
+                    beautify_strengths
+                )
+                
+                if beautified_image_array is not None:
+                    processor.load_image_from_array(beautified_image_array)
+                    print(f"[DEBUG] 美颜处理成功 - 应用的功能: {beautify_info['operations_applied']}")
                 else:
                     print(f"[DEBUG] 美颜处理失败，继续处理")
             else:
                 print(f"[DEBUG] 美颜已禁用")
             
-            # 4. 智能裁剪
+            # 智能裁剪
             crop_spec = self.batch_params.get('crop_spec', '一寸')
             print(f"[DEBUG] 智能裁剪到: {crop_spec}")
             success, crop_info = processor.crop_to_spec(crop_spec)
@@ -293,11 +358,10 @@ class BatchProcessor:
             else:
                 self._log_status(f"裁剪失败: {item['input_path']}", "warning")
                 print(f"[DEBUG] 裁剪信息: {crop_info}")
-                # 裁剪失败不应该终止处理，继续进行
             
-            # 5. 背景替换 - 使用精细模式算法
+            # 背景替换
             bg_color = self.batch_params.get('background_color', 'white')
-            use_alpha_matting = self.batch_params.get('use_alpha_matting', True)
+            use_alpha_matting = self.batch_params.get('alpha_matting', True)
             print(f"[DEBUG] 背景替换为: {bg_color}, Alpha Matte: {use_alpha_matting}")
             
             # 映射背景颜色名称
@@ -321,20 +385,18 @@ class BatchProcessor:
             else:
                 self._log_status(f"背景替换失败: {item['input_path']}", "warning")
                 print(f"[DEBUG] 背景替换信息: {bg_info}")
-                # 背景替换失败不应该终止处理，继续进行
             
-            # 6. 获取最终处理后的图像
+            # 获取最终处理后的图像
             processed_image = processor.get_current_image()
             if processed_image is None or not isinstance(processed_image, np.ndarray):
                 raise Exception("处理后的图像无效")
             
-            # 验证图像质量
             if processed_image.size == 0:
                 raise Exception("处理后的图像为空")
             
             print(f"[DEBUG] 处理后图像: {processed_image.shape}, 数据类型: {processed_image.dtype}")
             
-            # 7. 保存处理后的图像
+            # 保存处理后的图像
             output_path = self._generate_output_path(
                 output_directory, item['output_name'], 
                 self.batch_params.get('output_format', 'jpg')
@@ -357,12 +419,212 @@ class BatchProcessor:
                 raise Exception("保存图像失败")
                 
         except Exception as e:
-            # 处理失败
             item['status'] = 'failed'
             item['error'] = str(e)
             item['processing_time'] = time.time() - start_time
             
             self._log_status(f"处理失败: {item['input_path']} - {e}", "error")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def _process_multi_spec_file(self, item: Dict, output_directory: str, 
+                                  specs: List[str], colors: List[str]) -> bool:
+        """
+        处理单个文件 - 多规格多颜色
+        
+        Args:
+            item: 文件信息字典
+            output_directory: 输出目录
+            specs: 规格列表
+            colors: 颜色列表
+            
+        Returns:
+            bool: 是否处理成功
+        """
+        start_time = time.time()
+        total_combinations = len(specs) * len(colors)
+        successful_count = 0
+        
+        try:
+            print(f"[DEBUG] 多规格多颜色处理: {len(specs)}规格 × {len(colors)}颜色 = {total_combinations}张")
+            
+            # 创建图像处理器实例
+            processor = ImageProcessor(self.ai_processor)
+            
+            # 加载原始图像
+            print(f"[DEBUG] 正在加载图像...")
+            loaded_image = processor.load_image(item['input_path'])
+            if loaded_image is None or not isinstance(loaded_image, np.ndarray):
+                raise Exception("无法加载图像")
+            print(f"[DEBUG] 图像加载成功: {loaded_image.shape}")
+            
+            # 保存原始图像副本
+            original_image = loaded_image.copy()
+            
+            # 美颜处理（只做一次）
+            if self.batch_params.get('beautify_enabled', False):
+                beautify_strength = self.batch_params.get('beautify_strength', 0.5)
+                print(f"[DEBUG] 应用美颜，强度: {beautify_strength}")
+                
+                # 使用高级美颜功能
+                from controllers.advanced_beautify import AdvancedBeautify
+                beautify_processor = AdvancedBeautify(self.ai_processor)
+                
+                # 配置美颜选项 - 启用多个功能
+                beautify_options = {
+                    'skin_smooth': True,        # 磨皮
+                    'remove_blemishes': True,   # 祛痘
+                    'eye_enhance': True,        # 眼部增强
+                    'lip_enhance': True,        # 唇部增强
+                    'teeth_whiten': True,       # 牙齿美白
+                    'face_slim': False,         # 瘦脸（可选）
+                    'eye_enlarge': False,       # 大眼（可选）
+                    'nose_enhance': False       # 鼻部增强（可选）
+                }
+                
+                # 配置强度
+                beautify_strengths = {
+                    'smooth_strength': beautify_strength,
+                    'eye_enhance_strength': beautify_strength * 0.6,
+                    'lip_enhance_strength': beautify_strength * 0.4,
+                    'blemish_strength': beautify_strength * 0.8
+                }
+                
+                # 应用美颜
+                beautified_image_array, beautify_info = beautify_processor.selective_beautify(
+                    processor.get_current_image(),
+                    beautify_options,
+                    beautify_strengths
+                )
+                
+                if beautified_image_array is not None:
+                    processor.load_image_from_array(beautified_image_array)
+                    print(f"[DEBUG] 美颜处理成功 - 应用的功能: {beautify_info['operations_applied']}")
+                else:
+                    print(f"[DEBUG] 美颜处理失败，继续处理")
+                
+                # 保存美颜后的图像
+                beautified_image = processor.get_current_image().copy()
+            else:
+                beautified_image = original_image.copy()
+            
+            # 获取高级背景效果参数
+            gradient_enabled = self.batch_params.get('gradient_enabled', False)
+            texture_enabled = self.batch_params.get('texture_enabled', False)
+            blur_enabled = self.batch_params.get('blur_enabled', False)
+            use_alpha_matting = self.batch_params.get('alpha_matting', True)
+            
+            # 循环处理每个规格和颜色组合
+            combination_index = 0
+            for spec in specs:
+                for color in colors:
+                    combination_index += 1
+                    print(f"\n[DEBUG] === 处理组合 {combination_index}/{total_combinations}: {spec} + {color} ===")
+                    
+                    try:
+                        # 重新加载美颜后的图像
+                        processor = ImageProcessor(self.ai_processor)
+                        processor.load_image_from_array(beautified_image.copy())
+                        
+                        # 智能裁剪到指定规格
+                        print(f"[DEBUG] 智能裁剪到: {spec}")
+                        success, crop_info = processor.crop_to_spec(spec)
+                        if not success:
+                            print(f"[WARN] 裁剪失败: {crop_info}")
+                            continue
+                        
+                        # 背景替换
+                        print(f"[DEBUG] 背景替换为: {color}")
+                        success, bg_info = processor.change_background(
+                            color, 
+                            method='refined', 
+                            refine_edges=True, 
+                            use_alpha_matting=use_alpha_matting
+                        )
+                        if not success:
+                            print(f"[WARN] 背景替换失败: {bg_info}")
+                            continue
+                        
+                        # 应用高级背景效果
+                        if gradient_enabled or texture_enabled or blur_enabled:
+                            print(f"[DEBUG] 应用高级背景效果: 渐变={gradient_enabled}, 纹理={texture_enabled}, 虚化={blur_enabled}")
+                            current_image = processor.get_current_image()
+                            mask = processor.current_mask
+                            
+                            if mask is not None:
+                                from controllers.advanced_background import AdvancedBackgroundProcessor
+                                adv_bg = AdvancedBackgroundProcessor()
+                                
+                                # 应用效果
+                                if blur_enabled:
+                                    current_image = adv_bg.apply_blur_effect(current_image, mask, strength=50)
+                                if gradient_enabled:
+                                    current_image = adv_bg.apply_gradient_effect(current_image, mask, direction='vertical')
+                                if texture_enabled:
+                                    current_image = adv_bg.apply_texture_effect(current_image, mask, texture_type='canvas')
+                                
+                                processor.load_image_from_array(current_image)
+                        
+                        # 获取处理后的图像
+                        processed_image = processor.get_current_image()
+                        if processed_image is None or processed_image.size == 0:
+                            print(f"[WARN] 处理后图像无效")
+                            continue
+                        
+                        # 生成输出文件名
+                        base_name = os.path.splitext(os.path.basename(item['input_path']))[0]
+                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        
+                        # 映射规格和颜色到英文
+                        spec_mapping = {
+                            '一寸': '1inch', '小一寸': 'small1inch', '大一寸': 'large1inch',
+                            '小二寸': 'small2inch', '二寸': '2inch', '大二寸': 'large2inch',
+                            '美国护照': 'us_passport', '欧盟护照': 'eu_passport',
+                            '英国签证': 'uk_visa', '日本护照': 'jp_passport'
+                        }
+                        color_mapping = {
+                            '白色': 'white', '蓝色': 'blue', '红色': 'red',
+                            '灰色': 'gray', '浅蓝色': 'lightblue',
+                            '美国护照蓝': 'us_blue', '欧盟护照灰': 'eu_gray'
+                        }
+                        
+                        spec_en = spec_mapping.get(spec, spec.replace(' ', '_'))
+                        color_en = color_mapping.get(color, color.replace(' ', '_'))
+                        
+                        output_filename = f"{base_name}_{timestamp}_{spec_en}_{color_en}.jpg"
+                        output_path = os.path.join(output_directory, output_filename)
+                        output_path = os.path.normpath(output_path)
+                        
+                        # 保存图像
+                        print(f"[DEBUG] 保存到: {output_path}")
+                        success = self._save_processed_image(processed_image, output_path)
+                        
+                        if success:
+                            successful_count += 1
+                            print(f"[OK] 成功保存: {spec} + {color}")
+                        else:
+                            print(f"[WARN] 保存失败: {spec} + {color}")
+                            
+                    except Exception as e:
+                        print(f"[ERROR] 处理组合失败 ({spec} + {color}): {e}")
+                        continue
+            
+            # 更新处理结果
+            if successful_count > 0:
+                item['status'] = 'completed'
+                item['processing_time'] = time.time() - start_time
+                self._log_status(f"多规格处理完成: {item['input_path']} - 成功 {successful_count}/{total_combinations}", "success")
+                return True
+            else:
+                raise Exception(f"所有组合都处理失败 (0/{total_combinations})")
+                
+        except Exception as e:
+            item['status'] = 'failed'
+            item['error'] = str(e)
+            item['processing_time'] = time.time() - start_time
+            
+            self._log_status(f"多规格处理失败: {item['input_path']} - {e}", "error")
             import traceback
             traceback.print_exc()
             return False

@@ -59,12 +59,12 @@ class ProcessView(QWidget):
         top_control_layout.addSpacing(10)
         
         # 加载图像按钮
-        load_btn = QPushButton("📁 选择图像")
+        load_btn = QPushButton("选择图像")
         load_btn.clicked.connect(self.load_image)
         top_control_layout.addWidget(load_btn)
         
         # 对比按钮
-        self.compare_btn = QPushButton("📷 对比")
+        self.compare_btn = QPushButton("对比")
         self.compare_btn.setEnabled(False)
         # 长按显示原图（不再左右双图同时展示）
         self.compare_btn.pressed.connect(self._on_compare_pressed)
@@ -95,11 +95,29 @@ class ProcessView(QWidget):
         
         left_layout.addWidget(self.preview_container)
         
-        # 质量评分（紧凑版）
+        # 质量评分（紧凑版）- 显示总体评分和详细指标
         quality_layout = QHBoxLayout()
         quality_layout.addWidget(QLabel("质量:"))
         self.quality_label = QLabel("未加载")
+        self.quality_label.setStyleSheet("font-weight: bold; font-size: 12px;")
         quality_layout.addWidget(self.quality_label)
+        
+        # 详细指标
+        quality_layout.addSpacing(15)
+        quality_layout.addWidget(QLabel("清晰度:"))
+        self.sharpness_label = QLabel("0")
+        quality_layout.addWidget(self.sharpness_label)
+        
+        quality_layout.addSpacing(15)
+        quality_layout.addWidget(QLabel("亮度:"))
+        self.brightness_label = QLabel("0")
+        quality_layout.addWidget(self.brightness_label)
+        
+        quality_layout.addSpacing(15)
+        quality_layout.addWidget(QLabel("对比度:"))
+        self.contrast_label = QLabel("0")
+        quality_layout.addWidget(self.contrast_label)
+        
         quality_layout.addStretch()
         left_layout.addLayout(quality_layout)
         
@@ -164,15 +182,15 @@ class ProcessView(QWidget):
                     display_name = f"{size_str} {specs[0]}"
                     tooltip = f"尺寸: {size[0]}×{size[1]}px"
                 else:
-                    display_name = f"{size_str} {specs[0]} 等{len(specs)}种"
-                    tooltip = f"相同尺寸 {size[0]}×{size[1]}px:\n" + "\n".join(specs)
+                    display_name = f"{size_str} {specs[0]}"
+                    tooltip = f"相同尺寸 {size[0]}×{size[1]}px (共{len(specs)}种):\n" + "\n".join(specs)
                 
                 checkbox = QCheckBox(display_name)
                 checkbox.setToolTip(tooltip)
                 checkbox.spec_name = specs[0]  # 保存实际规格名
                 
-                # 默认选中一寸
-                if "一寸" in display_name:
+                # 默认仅选中一寸（精确匹配，不包括"大一寸"）
+                if specs[0] == "一寸":
                     checkbox.setChecked(True)
                 
                 size_key = f"{size[0]}x{size[1]}"
@@ -208,7 +226,7 @@ class ProcessView(QWidget):
         select_all_bg_btn.clicked.connect(self.select_all_colors)
         bg_quick_btn_layout.addWidget(select_all_bg_btn)
         
-        select_basic_bg_btn = QPushButton("基础")
+        select_basic_bg_btn = QPushButton("常用")
         select_basic_bg_btn.setMaximumWidth(60)
         select_basic_bg_btn.clicked.connect(self.select_basic_colors)
         bg_quick_btn_layout.addWidget(select_basic_bg_btn)
@@ -231,8 +249,8 @@ class ProcessView(QWidget):
         for color_name in BACKGROUND_COLORS.keys():
             checkbox = QCheckBox(color_name)
             
-            # 默认选中蓝色
-            if color_name == '蓝色':
+            # 默认仅选中灰色
+            if color_name == '灰色':
                 checkbox.setChecked(True)
             
             self.bg_checkboxes[color_name] = checkbox
@@ -244,6 +262,29 @@ class ProcessView(QWidget):
                 row += 1
         
         bg_layout.addLayout(bg_grid)
+        
+        # 高级背景选项
+        advanced_bg_label = QLabel("高级背景效果:")
+        advanced_bg_label.setStyleSheet("font-weight: bold; font-size: 12px; color: #333;")
+        bg_layout.addWidget(advanced_bg_label)
+        
+        advanced_bg_layout = QHBoxLayout()
+        advanced_bg_layout.setSpacing(2)
+        
+        self.gradient_check = QCheckBox("渐变")
+        self.gradient_check.setToolTip("使用渐变背景（从一种颜色渐变到另一种颜色）")
+        advanced_bg_layout.addWidget(self.gradient_check)
+        
+        self.texture_check = QCheckBox("纹理")
+        self.texture_check.setToolTip("使用纹理背景（需要提供纹理图像）")
+        advanced_bg_layout.addWidget(self.texture_check)
+        
+        self.blur_check = QCheckBox("虚化")
+        self.blur_check.setToolTip("使用虚化背景（模糊原始背景）")
+        advanced_bg_layout.addWidget(self.blur_check)
+        
+        advanced_bg_layout.addStretch()
+        bg_layout.addLayout(advanced_bg_layout)
         
         # 处理模式和Alpha Matte在同一行
         mode_alpha_layout = QHBoxLayout()
@@ -319,19 +360,19 @@ class ProcessView(QWidget):
         self.brightness_slider.setValue(0)
         self.brightness_slider.valueChanged.connect(self.on_brightness_changed)
         adjust_layout.addWidget(self.brightness_slider, 0, 1)
-        self.brightness_label = QLabel("0")
-        self.brightness_label.setMinimumWidth(30)
-        adjust_layout.addWidget(self.brightness_label, 0, 2)
+        self.brightness_adjust_label = QLabel("0")  # 改名为 brightness_adjust_label
+        self.brightness_adjust_label.setMinimumWidth(30)
+        adjust_layout.addWidget(self.brightness_adjust_label, 0, 2)
         
-        adjust_layout.addWidget(QLabel("对比:"), 1, 0)
+        adjust_layout.addWidget(QLabel("对比度:"), 1, 0)
         self.contrast_slider = QSlider(Qt.Horizontal)
-        self.contrast_slider.setRange(50, 200)
-        self.contrast_slider.setValue(100)
+        self.contrast_slider.setRange(-100, 100)  # 改为 -100 到 100
+        self.contrast_slider.setValue(0)  # 改为 0（中立）
         self.contrast_slider.valueChanged.connect(self.on_contrast_changed)
         adjust_layout.addWidget(self.contrast_slider, 1, 1)
-        self.contrast_label = QLabel("1.0")
-        self.contrast_label.setMinimumWidth(30)
-        adjust_layout.addWidget(self.contrast_label, 1, 2)
+        self.contrast_adjust_label = QLabel("0")  # 改名为 contrast_adjust_label
+        self.contrast_adjust_label.setMinimumWidth(30)
+        adjust_layout.addWidget(self.contrast_adjust_label, 1, 2)
         
         adjust_group.setLayout(adjust_layout)
         right_layout.addWidget(adjust_group)
@@ -341,7 +382,7 @@ class ProcessView(QWidget):
         action_layout = QGridLayout()
         action_layout.setSpacing(4)
         
-        self.process_btn = QPushButton("应用处理")
+        self.process_btn = QPushButton("一键处理")
         self.process_btn.clicked.connect(self.apply_processing)
         self.process_btn.setEnabled(False)
         action_layout.addWidget(self.process_btn, 0, 0)
@@ -351,12 +392,12 @@ class ProcessView(QWidget):
         self.reset_btn.setEnabled(False)
         action_layout.addWidget(self.reset_btn, 0, 1)
         
-        self.manual_crop_btn = QPushButton("✂️ 裁剪")
+        self.manual_crop_btn = QPushButton("裁剪")
         self.manual_crop_btn.clicked.connect(self.manual_crop)
         self.manual_crop_btn.setEnabled(False)
         action_layout.addWidget(self.manual_crop_btn, 1, 0)
         
-        self.save_btn = QPushButton("💾 保存")
+        self.save_btn = QPushButton("保存")
         self.save_btn.clicked.connect(self.save_image)
         self.save_btn.setEnabled(False)
         action_layout.addWidget(self.save_btn, 1, 1)
@@ -365,7 +406,7 @@ class ProcessView(QWidget):
         right_layout.addWidget(action_group)
         
         # 批量处理按钮（紧凑版）
-        unified_batch_btn = QPushButton("🚀 多规格批量生成")
+        unified_batch_btn = QPushButton("多规格批量生成")
         unified_batch_btn.setStyleSheet("""
             QPushButton {
                 background-color: #28a745;
@@ -573,15 +614,45 @@ class ProcessView(QWidget):
                 self.original_label.setVisible(False)
 
     def update_quality_score(self):
-        """更新质量评分"""
-        score = self.processor.get_quality_score()
+        """更新质量评分 - 显示详细指标"""
+        quality_info = self.processor.get_quality_score()
         
-        if score >= 70:
-            self.quality_label.setText(f"<span style='color: green;'>{score}/100</span>")
-        elif score >= 50:
-            self.quality_label.setText(f"<span style='color: orange;'>{score}/100</span>")
+        print(f"[DEBUG] update_quality_score 收到的数据: {quality_info}, 类型: {type(quality_info)}")
+        print(f"[DEBUG] 标签对象 - quality_label: {self.quality_label}, sharpness_label: {self.sharpness_label}, brightness_label: {self.brightness_label}, contrast_label: {self.contrast_label}")
+        
+        # 处理新旧格式兼容
+        if isinstance(quality_info, dict):
+            overall_score = quality_info.get('overall_score', 0)
+            sharpness = quality_info.get('sharpness', 0)
+            brightness = quality_info.get('brightness', 0)
+            contrast = quality_info.get('contrast', 0)
+            print(f"[DEBUG] 字典格式 - 总体: {overall_score}, 清晰度: {sharpness}, 亮度: {brightness}, 对比度: {contrast}")
         else:
-            self.quality_label.setText(f"<span style='color: red;'>{score}/100</span>")
+            overall_score = quality_info if quality_info else 0
+            sharpness = brightness = contrast = 0
+            print(f"[DEBUG] 非字典格式 - 总体: {overall_score}")
+        
+        # 设置颜色
+        if overall_score >= 70:
+            color = "green"
+        elif overall_score >= 50:
+            color = "orange"
+        else:
+            color = "red"
+        
+        # 显示总体评分
+        quality_text = f"<span style='color: {color}; font-weight: bold;'>{overall_score}/100</span>"
+        self.quality_label.setText(quality_text)
+        print(f"[DEBUG] 设置quality_label文本: {quality_text}")
+        
+        # 显示详细指标
+        self.sharpness_label.setText(f"{sharpness}")
+        self.brightness_label.setText(f"{brightness}")
+        self.contrast_label.setText(f"{contrast}")
+        
+        print(f"[DEBUG] 设置标签文本 - 清晰度: {sharpness}, 亮度: {brightness}, 对比度: {contrast}")
+        print(f"[DEBUG] 标签当前文本 - quality: {self.quality_label.text()}, sharpness: {self.sharpness_label.text()}, brightness: {self.brightness_label.text()}, contrast: {self.contrast_label.text()}")
+        print(f"[DEBUG] UI已更新 - 质量标签: {overall_score}/100, 清晰度: {sharpness}, 亮度: {brightness}, 对比度: {contrast}")
 
     def apply_processing(self):
         """应用处理"""
@@ -645,6 +716,9 @@ class ProcessView(QWidget):
                 print("[INFO] 使用精细模式进行背景替换")
                 self.processor.change_background(bg_color, method='refined', use_alpha_matting=use_alpha_matting)
             
+            # 应用高级背景效果
+            self._apply_advanced_background_effects()
+            
             # 显示处理后的图像
             self.display_image(self.processor.get_current_image())
             self.update_quality_score()
@@ -657,7 +731,7 @@ class ProcessView(QWidget):
             self.brightness_slider.blockSignals(True)
             self.contrast_slider.blockSignals(True)
             self.brightness_slider.setValue(0)
-            self.contrast_slider.setValue(100)
+            self.contrast_slider.setValue(0)
             self.brightness_slider.blockSignals(False)
             self.contrast_slider.blockSignals(False)
             
@@ -791,24 +865,33 @@ class ProcessView(QWidget):
     def reset_image(self):
         """重置图像"""
         self.processor.reset_image()
+        
+        # 重置realtime_adjuster的基础图像
+        self.processor.realtime_adjuster.set_image(self.processor.get_current_image())
+        
         self.display_image(self.processor.get_current_image())
         self.update_quality_score()
+        
+        # 重置滑块
+        self.brightness_slider.blockSignals(True)
+        self.contrast_slider.blockSignals(True)
         self.brightness_slider.setValue(0)
-        self.contrast_slider.setValue(100)
+        self.contrast_slider.setValue(0)
+        self.brightness_slider.blockSignals(False)
+        self.contrast_slider.blockSignals(False)
 
     def on_brightness_changed(self, value):
         """亮度改变"""
-        self.brightness_label.setText(str(value))
+        self.brightness_adjust_label.setText(str(value))
         if self.processor.current_image is not None:
             self.processor.adjust_brightness(value)
             self.display_image(self.processor.get_current_image())
 
     def on_contrast_changed(self, value):
         """对比度改变"""
-        contrast_value = value / 100.0
-        self.contrast_label.setText(f"{contrast_value:.1f}")
+        self.contrast_adjust_label.setText(str(value))  # 直接显示值
         if self.processor.current_image is not None:
-            self.processor.adjust_contrast(contrast_value)
+            self.processor.adjust_contrast(value)  # 直接传递值
             self.display_image(self.processor.get_current_image())
 
     def save_image(self):
@@ -979,6 +1062,168 @@ class ProcessView(QWidget):
         """清空颜色选择"""
         for checkbox in self.bg_checkboxes.values():
             checkbox.setChecked(False)
+    
+    def _apply_advanced_background_effects(self):
+        """应用高级背景效果（渐变、纹理、虚化）"""
+        try:
+            import cv2
+            import numpy as np
+            
+            # 检查是否选择了高级背景效果
+            gradient_enabled = self.gradient_check.isChecked()
+            texture_enabled = self.texture_check.isChecked()
+            blur_enabled = self.blur_check.isChecked()
+            
+            if not (gradient_enabled or texture_enabled or blur_enabled):
+                print("[DEBUG] 没有选择任何高级背景效果")
+                return  # 没有选择任何高级效果
+            
+            current_image = self.processor.get_current_image()
+            if current_image is None:
+                print("[WARNING] 当前图像为空")
+                return
+            
+            # 检查是否有保存的mask
+            if self.processor.current_mask is None:
+                print("[WARNING] 没有保存的mask，无法应用高级背景效果")
+                return
+            
+            print(f"[DEBUG] 高级背景效果: 渐变={gradient_enabled}, 纹理={texture_enabled}, 虚化={blur_enabled}")
+            
+            h, w = current_image.shape[:2]
+            
+            # 获取背景色
+            selected_colors = [name for name, cb in self.bg_checkboxes.items() if cb.isChecked()]
+            if selected_colors:
+                from config.config import BACKGROUND_COLORS
+                # 转换RGB到BGR
+                color1_rgb = BACKGROUND_COLORS.get(selected_colors[0], (67, 142, 219))
+                color1 = (color1_rgb[2], color1_rgb[1], color1_rgb[0])  # RGB转BGR
+            else:
+                color1 = (67, 142, 219)  # 默认蓝色
+            
+            # 使用保存的mask
+            print("[DEBUG] 使用保存的mask进行高级背景效果处理...")
+            try:
+                # 获取mask并归一化到0-1
+                mask = self.processor.current_mask.astype(np.float32) / 255.0
+                person_mask_float = mask
+                
+                print(f"[DEBUG] mask获取成功，人物像素比例: {np.mean(person_mask_float)*100:.1f}%")
+                
+            except Exception as e:
+                print(f"[ERROR] mask处理失败: {e}")
+                import traceback
+                traceback.print_exc()
+                return
+            
+            # 创建纯色背景
+            background = np.full((h, w, 3), color1, dtype=np.uint8)
+            
+            # 应用虚化效果
+            if blur_enabled:
+                print("[INFO] 应用虚化背景效果")
+                try:
+                    # 虚化效果：创建一个有微妙纹理变化的背景，然后模糊
+                    # 这样可以看出虚化的效果
+                    
+                    # 1. 创建基础背景
+                    blur_bg = background.copy()
+                    
+                    # 2. 添加微妙的纹理变化（这样模糊后才能看出效果）
+                    noise = np.random.randint(-10, 10, (h, w, 3), dtype=np.int16)
+                    blur_bg = np.clip(blur_bg.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+                    
+                    # 3. 进行高斯模糊
+                    blurred_bg = cv2.GaussianBlur(blur_bg, (51, 51), 0)
+                    background = blurred_bg
+                    print(f"[INFO] 虚化效果应用完成")
+                except Exception as e:
+                    print(f"[ERROR] 虚化效果应用失败: {e}")
+            
+            # 应用渐变效果
+            if gradient_enabled:
+                print("[INFO] 应用渐变背景效果")
+                try:
+                    color2 = (255, 255, 255)  # 白色
+                    # 创建渐变背景
+                    for y in range(h):
+                        # 从 color1 渐变到 color2
+                        alpha = y / h
+                        for c in range(3):
+                            background[y, :, c] = int(color1[c] * (1 - alpha) + color2[c] * alpha)
+                    print(f"[INFO] 渐变效果应用完成")
+                except Exception as e:
+                    print(f"[ERROR] 渐变效果应用失败: {e}")
+            
+            # 应用纹理效果
+            if texture_enabled:
+                print("[INFO] 应用纹理背景效果")
+                try:
+                    # 创建棋盘纹理
+                    texture = self._create_default_texture(h, w)
+                    # 将纹理与背景混合
+                    background = cv2.addWeighted(background, 0.7, texture, 0.3, 0)
+                    print(f"[INFO] 纹理效果应用完成")
+                except Exception as e:
+                    print(f"[ERROR] 纹理效果应用失败: {e}")
+            
+            # 使用mask进行合成
+            print("[DEBUG] 使用mask进行合成...")
+            try:
+                # 3通道 mask
+                person_mask_3ch = np.stack([person_mask_float] * 3, axis=-1)
+                
+                # 合成：人物 * person_mask + 处理后背景 * (1 - person_mask)
+                result = (current_image.astype(np.float32) * person_mask_3ch +
+                         background.astype(np.float32) * (1 - person_mask_3ch))
+                
+                result = result.astype(np.uint8)
+                
+                # 更新处理器中的图像
+                self.processor.current_image = result
+                print("[DEBUG] 高级背景效果应用完成")
+                
+            except Exception as e:
+                print(f"[ERROR] 合成失败: {e}")
+                import traceback
+                traceback.print_exc()
+            
+        except Exception as e:
+            print(f"[WARNING] 应用高级背景效果失败: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _create_default_texture(self, height, width):
+        """创建默认纹理（棋盘纹理）"""
+        import numpy as np
+        import cv2
+        
+        # 创建棋盘纹理
+        square_size = 20
+        texture = np.zeros((height, width, 3), dtype=np.uint8)
+        
+        for i in range(0, height, square_size):
+            for j in range(0, width, square_size):
+                if ((i // square_size) + (j // square_size)) % 2 == 0:
+                    texture[i:i+square_size, j:j+square_size] = (200, 200, 200)
+                else:
+                    texture[i:i+square_size, j:j+square_size] = (150, 150, 150)
+        
+        return texture
+    
+    def _get_texture_path(self):
+        """获取纹理文件路径"""
+        import os
+        # 尝试从resources目录获取默认纹理
+        texture_dir = os.path.join(os.path.dirname(__file__), '..', 'resources', 'textures')
+        if os.path.exists(texture_dir):
+            textures = [f for f in os.listdir(texture_dir) if f.endswith(('.jpg', '.png', '.bmp'))]
+            if textures:
+                return os.path.join(texture_dir, textures[0])
+        
+        # 如果没有默认纹理，返回None
+        return None
     
     def notify_data_changed(self):
         """通知主窗口数据已更改，需要刷新统计"""

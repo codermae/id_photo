@@ -337,8 +337,8 @@ class CameraView(QWidget):
         contrast_layout = QHBoxLayout()
         contrast_layout.addWidget(QLabel("对比度:"))
         self.contrast_slider = QSlider(Qt.Horizontal)
-        self.contrast_slider.setRange(50, 200)
-        self.contrast_slider.setValue(100)
+        self.contrast_slider.setRange(-100, 100)  # 改为 -100 到 100
+        self.contrast_slider.setValue(0)  # 改为 0
         self.contrast_slider.valueChanged.connect(self.on_contrast_changed)
         contrast_layout.addWidget(self.contrast_slider)
         adjust_layout.addLayout(contrast_layout)
@@ -354,8 +354,8 @@ class CameraView(QWidget):
         beautify_strength_layout.addWidget(QLabel("美颜强度:"))
         self.beautify_strength_slider = QSlider(Qt.Horizontal)
         self.beautify_strength_slider.setRange(0, 200)
-        self.beautify_strength_slider.setValue(100)
-        self.beautify_strength_label = QLabel("1.0x")
+        self.beautify_strength_slider.setValue(0)  # 改为 0
+        self.beautify_strength_label = QLabel("0.0x")  # 改为 0.0x
         self.beautify_strength_label.setMinimumWidth(40)
         self.beautify_strength_slider.valueChanged.connect(self.on_beautify_strength_changed)
         beautify_strength_layout.addWidget(self.beautify_strength_slider)
@@ -827,7 +827,7 @@ class CameraView(QWidget):
     def on_contrast_changed(self, value):
         """对比度改变"""
         if self.camera:
-            self.camera.set_contrast(value / 100.0)
+            self.camera.set_contrast(value)  # 直接传递值
 
     def on_beautify_strength_changed(self, value):
         """美颜强度改变"""

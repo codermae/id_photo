@@ -512,40 +512,17 @@ class HiFiPipeline:
         # 首先进行基本的噪点清理
         cleaned_mask = alpha_mask.copy()
         
-        # 清除微弱的半透明像素（< 30）
-        cleaned_mask[cleaned_mask < 30] = 0
-        
-        # 对边缘区域应用高斯模糊
-        # 检测边缘区域
-        edges = cv2.Canny(cleaned_mask, 50, 150)
-        
-        # 扩展边缘区域
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-        edge_region = cv2.dilate(edges, kernel, iterations=2)
+        # 清除非常微弱的像素（< 5），但保留半透明边缘
+        # 降低阈值从10到5，保留更多的半透明像素
+        cleaned_mask[cleaned_mask < 5] = 0
         
         # 对整个 mask 应用轻微高斯模糊
         blurred_mask = cv2.GaussianBlur(cleaned_mask, (5, 5), 1.0)
         
-        # 只在边缘区域应用更强的模糊
-        strong_blur = cv2.GaussianBlur(cleaned_mask, (7, 7), 2.0)
+        # 再次轻微模糊以确保平滑
+        final_mask = cv2.GaussianBlur(blurred_mask, (3, 3), 0.5)
         
-        # 混合结果
-        edge_region_norm = edge_region.astype(np.float32) / 255.0
-        smooth_mask = (blurred_mask.astype(np.float32) * (1 - edge_region_norm) + 
-                       strong_blur.astype(np.float32) * edge_region_norm)
-        
-        smooth_mask = smooth_mask.astype(np.uint8)
-        
-        # 最终二值化，但保留边缘的渐变
-        # 使用自适应阈值保持边缘平滑
-        final_mask = cv2.adaptiveThreshold(
-            smooth_mask, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
-        )
-        
-        # 再次轻微模糊以确保边缘平滑
-        final_mask = cv2.GaussianBlur(final_mask, (3, 3), 0.5)
-        
-        print(f"[HiFi] ✓ Alpha Mask 平滑完成，边缘自然过渡")
+        print(f"[HiFi] ✓ Alpha Mask 平滑完成")
         return final_mask
 
     def _fallback_matting(self, image: np.ndarray) -> np.ndarray:
@@ -708,6 +685,15 @@ class HiFiPipeline:
         产生单反相机级别的自然过渡效果
         """
         h, w = image.shape[:2]
+        
+        # 验证背景色格式
+        if not isinstance(bg_color, (tuple, list)) or len(bg_color) != 3:
+            print(f"[WARNING] 背景色格式错误: {bg_color}，使用白色替代")
+            bg_color = (255, 255, 255)
+        
+        # 确保背景色值在 0-255 范围内
+        bg_color = tuple(max(0, min(255, int(c))) for c in bg_color)
+        print(f"[DEBUG] 使用背景色 BGR: {bg_color}")
         
         # 创建背景
         background = np.full((h, w, 3), bg_color, dtype=np.uint8)

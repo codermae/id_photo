@@ -233,9 +233,7 @@ class DatabaseHelper:
             if collection_id is None:
                 collection_id = self.current_collection_id
             
-            if collection_id is None:
-                raise ValueError("必须指定采集任务ID")
-            
+            # collection_id 可以为 None（手动选择用户时）
             record = CollectionRecord(
                 collection_id=collection_id,
                 user_id=user_id,
@@ -258,6 +256,17 @@ class DatabaseHelper:
     def get_records_by_user(self, user_id):
         """获取用户的所有采集记录"""
         return self.db.query(CollectionRecord).filter(CollectionRecord.user_id == user_id).all()
+
+    def get_records_by_date(self, date, collection_id=None):
+        """获取指定日期的采集记录"""
+        query = self.db.query(CollectionRecord).filter(CollectionRecord.collection_date == date)
+        
+        if collection_id:
+            query = query.filter(CollectionRecord.collection_id == collection_id)
+        elif self.current_collection_id:
+            query = query.filter(CollectionRecord.collection_id == self.current_collection_id)
+        
+        return query.all()
 
     def update_record(self, record_id, **kwargs):
         """更新采集记录"""
@@ -324,3 +333,121 @@ class DatabaseHelper:
             query = query.filter(User.collection_id == self.current_collection_id)
         
         return query.count()
+
+    def get_demographic_stats(self, collection_id=None):
+        """获取人口统计数据（年龄、性别、民族等）"""
+        from datetime import datetime
+        
+        query = self.db.query(User)
+        
+        if collection_id:
+            query = query.filter(User.collection_id == collection_id)
+        elif self.current_collection_id:
+            query = query.filter(User.collection_id == self.current_collection_id)
+        
+        users = query.all()
+        
+        # 性别统计
+        gender_stats = {}
+        age_stats = {'0-18': 0, '18-30': 0, '30-45': 0, '45-60': 0, '60+': 0}
+        nation_stats = {}
+        
+        today = datetime.now().date()
+        
+        for user in users:
+            # 性别统计
+            gender = user.gender or '未知'
+            gender_stats[gender] = gender_stats.get(gender, 0) + 1
+            
+            # 年龄统计
+            if user.birthday:
+                age = (today - user.birthday).days // 365
+                if age < 18:
+                    age_stats['0-18'] += 1
+                elif age < 30:
+                    age_stats['18-30'] += 1
+                elif age < 45:
+                    age_stats['30-45'] += 1
+                elif age < 60:
+                    age_stats['45-60'] += 1
+                else:
+                    age_stats['60+'] += 1
+            
+            # 民族统计
+            nation = user.nation or '未知'
+            nation_stats[nation] = nation_stats.get(nation, 0) + 1
+        
+        return {
+            'gender': gender_stats,
+            'age': age_stats,
+            'nation': nation_stats,
+            'total_users': len(users)
+        }
+
+    def get_daily_collection_count(self, date, collection_id=None):
+        """获取指定日期的采集数量"""
+        query = self.db.query(CollectionRecord).filter(
+            CollectionRecord.collection_date == date,
+            CollectionRecord.status == 'completed'
+        )
+        
+        if collection_id:
+            query = query.filter(CollectionRecord.collection_id == collection_id)
+        elif self.current_collection_id:
+            query = query.filter(CollectionRecord.collection_id == self.current_collection_id)
+        
+        return query.count()
+
+    def search_users(self, keyword, collection_id=None, gender=None, age_range=None, nation=None):
+        """高级搜索用户"""
+        from datetime import datetime
+        
+        query = self.db.query(User)
+        
+        if collection_id:
+            query = query.filter(User.collection_id == collection_id)
+        elif self.current_collection_id:
+            query = query.filter(User.collection_id == self.current_collection_id)
+        
+        # 关键词搜索（姓名或身份证号）
+        if keyword:
+            query = query.filter(
+                (User.name.like(f'%{keyword}%')) | 
+                (User.id_number.like(f'%{keyword}%'))
+            )
+        
+        # 性别筛选
+        if gender:
+            query = query.filter(User.gender == gender)
+        
+        # 民族筛选
+        if nation:
+            query = query.filter(User.nation == nation)
+        
+        # 年龄范围筛选
+        if age_range:
+            today = datetime.now().date()
+            if age_range == '0-18':
+                min_age, max_age = 0, 18
+            elif age_range == '18-30':
+                min_age, max_age = 18, 30
+            elif age_range == '30-45':
+                min_age, max_age = 30, 45
+            elif age_range == '45-60':
+                min_age, max_age = 45, 60
+            elif age_range == '60+':
+                min_age, max_age = 60, 150
+            else:
+                min_age, max_age = 0, 150
+            
+            # 计算出生日期范围
+            from datetime import timedelta
+            max_birthday = today - timedelta(days=min_age*365)
+            min_birthday = today - timedelta(days=max_age*365)
+            
+            query = query.filter(
+                (User.birthday >= min_birthday) & 
+                (User.birthday <= max_birthday)
+            )
+        
+        return query.all()

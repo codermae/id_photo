@@ -22,16 +22,26 @@ from config.config import PHOTO_SPECS, BACKGROUND_COLORS
 class UnifiedBatchDialog(QDialog):
     """融合的批量处理对话框 - 多规格批量生成"""
     
+    # 定义信号用于线程安全的UI更新
+    progress_signal = pyqtSignal(int, int, str)
+    status_signal = pyqtSignal(str, str)
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("多规格批量生成")
         self.setGeometry(100, 100, 900, 750)
         self.setModal(True)
+        # 删除右上角的问号
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         
         self.ai_processor = AIProcessor()
         self.batch_processor = BatchProcessor(self.ai_processor)
         self.processing_thread = None
         self.selected_files = []
+        
+        # 连接信号到槽
+        self.progress_signal.connect(self._safe_update_progress)
+        self.status_signal.connect(self._safe_update_status)
         
         # 从父窗口（ProcessView）获取采集任务信息
         self.parent_view = parent
@@ -62,7 +72,7 @@ class UnifiedBatchDialog(QDialog):
         # layout.addWidget(info_label)
 
         # 图片选择区域
-        file_group = QGroupBox("📁 选择图片（支持单张或多张）")
+        file_group = QGroupBox("选择图片（支持单张或多张）")
         file_layout = QVBoxLayout(file_group)
         
         file_btn_layout = QHBoxLayout()
@@ -85,7 +95,7 @@ class UnifiedBatchDialog(QDialog):
         layout.addWidget(file_group)
         
         # 规格选择区域
-        spec_group = QGroupBox("📋 选择证件照规格")
+        spec_group = QGroupBox("选择证件照规格")
         spec_scroll = QScrollArea()
         spec_widget = QWidget()
         spec_layout = QGridLayout(spec_widget)
@@ -105,7 +115,7 @@ class UnifiedBatchDialog(QDialog):
             if len(specs) == 1:
                 checkbox = QCheckBox(f"{size_str} {specs[0]}")
             else:
-                checkbox = QCheckBox(f"{size_str} {specs[0]} 等{len(specs)}种")
+                checkbox = QCheckBox(f"{size_str} {specs[0]}")
                 checkbox.setToolTip(f"相同尺寸 {size[0]}×{size[1]}px:\n" + "\n".join(specs))
                 checkbox.specs_group = specs
             
@@ -119,7 +129,7 @@ class UnifiedBatchDialog(QDialog):
             spec_layout.addWidget(checkbox, row, col)
             
             col += 1
-            if col >= 3:
+            if col >= 4:
                 col = 0
                 row += 1
         
@@ -150,7 +160,7 @@ class UnifiedBatchDialog(QDialog):
         layout.addWidget(spec_group)
         
         # 背景色选择区域
-        color_group = QGroupBox("🎨 选择背景颜色（每种规格都会生成这些颜色）")
+        color_group = QGroupBox("选择背景颜色（每种规格都会生成这些颜色）")
         color_layout = QGridLayout()
         
         self.color_checkboxes = {}
@@ -167,7 +177,7 @@ class UnifiedBatchDialog(QDialog):
             color_layout.addWidget(checkbox, row, col)
             
             col += 1
-            if col >= 6:
+            if col >= 7:
                 col = 0
                 row += 1
         
@@ -189,34 +199,70 @@ class UnifiedBatchDialog(QDialog):
         self.update_generation_count()
         
         # 处理选项
-        options_group = QGroupBox("⚙️ 处理选项")
+        options_group = QGroupBox("处理选项")
         options_layout = QGridLayout()
+        options_layout.setSpacing(8)
         
+        # 背景模式
         options_layout.addWidget(QLabel("背景模式:"), 0, 0)
         self.bg_mode_combo = QComboBox()
         self.bg_mode_combo.addItems(['精细模式', '高保真模式'])
         self.bg_mode_combo.setCurrentIndex(0)
-        options_layout.addWidget(self.bg_mode_combo, 0, 1)
+        self.bg_mode_combo.currentTextChanged.connect(self.on_mode_changed)
+        options_layout.addWidget(self.bg_mode_combo, 0, 1, 1, 2)
         
+        # Alpha Matte（仅在精细模式显示）
         self.alpha_matting_check = QCheckBox("启用Alpha Matte")
         self.alpha_matting_check.setChecked(True)
-        options_layout.addWidget(self.alpha_matting_check, 0, 2)
+        options_layout.addWidget(self.alpha_matting_check, 0, 3)
         
-        self.beautify_check = QCheckBox("启用美颜")
+        # 美颜
+        self.beautify_check = QCheckBox("美颜")
         self.beautify_check.setChecked(False)
+        self.beautify_check.stateChanged.connect(self.on_beautify_changed)
         options_layout.addWidget(self.beautify_check, 1, 0)
         
-        options_layout.addWidget(QLabel("亮度:"), 1, 1)
+        options_layout.addWidget(QLabel("强度:"), 1, 1)
+        self.beautify_strength_spin = QSpinBox()
+        self.beautify_strength_spin.setRange(0, 100)
+        self.beautify_strength_spin.setValue(30)
+        self.beautify_strength_spin.setSuffix("%")
+        self.beautify_strength_spin.setEnabled(False)
+        options_layout.addWidget(self.beautify_strength_spin, 1, 2)
+        
+        # 亮度
+        options_layout.addWidget(QLabel("亮度:"), 2, 0)
         self.brightness_spin = QSpinBox()
         self.brightness_spin.setRange(-100, 100)
-        self.brightness_spin.setValue(10)
-        options_layout.addWidget(self.brightness_spin, 1, 2)
+        self.brightness_spin.setValue(0)
+        options_layout.addWidget(self.brightness_spin, 2, 1, 1, 2)
+        
+        # 对比度
+        options_layout.addWidget(QLabel("对比度:"), 3, 0)
+        self.contrast_spin = QSpinBox()
+        self.contrast_spin.setRange(-100, 100)
+        self.contrast_spin.setValue(0)
+        options_layout.addWidget(self.contrast_spin, 3, 1, 1, 2)
+        
+        # 高级背景效果
+        options_layout.addWidget(QLabel("高级背景效果:"), 4, 0)
+        self.gradient_check = QCheckBox("渐变")
+        self.gradient_check.setChecked(False)
+        options_layout.addWidget(self.gradient_check, 4, 1)
+        
+        self.texture_check = QCheckBox("纹理")
+        self.texture_check.setChecked(False)
+        options_layout.addWidget(self.texture_check, 4, 2)
+        
+        self.blur_check = QCheckBox("虚化")
+        self.blur_check.setChecked(False)
+        options_layout.addWidget(self.blur_check, 4, 3)
         
         options_group.setLayout(options_layout)
         layout.addWidget(options_group)
         
         # 输出目录
-        output_group = QGroupBox("📂 输出设置")
+        output_group = QGroupBox("输出设置")
         output_layout = QHBoxLayout()
         
         output_layout.addWidget(QLabel("输出目录:"))
@@ -249,7 +295,8 @@ class UnifiedBatchDialog(QDialog):
         # 按钮
         button_layout = QHBoxLayout()
         
-        self.start_btn = QPushButton("▶️ 开始生成")
+        self.start_btn = QPushButton("开始生成")
+        self.start_btn.setFixedHeight(40)
         self.start_btn.setStyleSheet("""
             QPushButton {
                 background-color: #28a745;
@@ -266,12 +313,14 @@ class UnifiedBatchDialog(QDialog):
         self.start_btn.clicked.connect(self.start_processing)
         button_layout.addWidget(self.start_btn)
         
-        self.stop_btn = QPushButton("⏹️ 停止")
+        self.stop_btn = QPushButton("停止")
+        self.stop_btn.setFixedHeight(40)
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_processing)
         button_layout.addWidget(self.stop_btn)
         
         close_btn = QPushButton("关闭")
+        close_btn.setFixedHeight(40)
         close_btn.clicked.connect(self.close)
         button_layout.addWidget(close_btn)
         
@@ -318,13 +367,22 @@ class UnifiedBatchDialog(QDialog):
         
         # 更新显示
         if image_count == 1 and not self.selected_files:
-            info_text = f"📊 将生成: {selected_specs} 规格 × {selected_colors} 颜色 = {per_image} 张照片/图片"
+            info_text = f"将生成: {selected_specs} 规格 × {selected_colors} 颜色 = {per_image} 张照片/图片"
         else:
-            info_text = f"📊 将生成: {image_count} 张图片 × {selected_specs} 规格 × {selected_colors} 颜色 = {total} 张照片"
+            info_text = f"将生成: {image_count} 张图片 × {selected_specs} 规格 × {selected_colors} 颜色 = {total} 张照片"
         
-        info_text += f"\n⏱️ 预计时间: {time_min:.1f} 分钟  |  💾 存储空间: {storage_mb:.1f} MB"
+        info_text += f"\n预计时间: {time_min:.1f} 分钟  |  存储空间: {storage_mb:.1f} MB"
         
         self.generation_info.setText(info_text)
+    
+    def on_beautify_changed(self):
+        """美颜复选框改变时的处理"""
+        self.beautify_strength_spin.setEnabled(self.beautify_check.isChecked())
+    
+    def on_mode_changed(self):
+        """背景模式改变时的处理"""
+        is_hifi = self.bg_mode_combo.currentText() == '高保真模式'
+        self.alpha_matting_check.setVisible(not is_hifi)
     
     def select_files(self):
         """选择图片文件"""
@@ -336,7 +394,7 @@ class UnifiedBatchDialog(QDialog):
             for file in files:
                 self.file_list.addItem(os.path.basename(file))
             self.selected_files = files
-            self.file_count_label.setText(f"✅ 已选择 {len(files)} 张图片")
+            self.file_count_label.setText(f"已选择 {len(files)} 张图片")
             self.file_count_label.setStyleSheet("color: #28a745; font-weight: bold;")
             self.update_generation_count()
             self.add_status(f"已选择 {len(files)} 张图片")
@@ -355,7 +413,7 @@ class UnifiedBatchDialog(QDialog):
                 for file in image_files:
                     self.file_list.addItem(os.path.basename(file))
                 self.selected_files = image_files
-                self.file_count_label.setText(f"✅ 已选择 {len(image_files)} 张图片")
+                self.file_count_label.setText(f"已选择 {len(image_files)} 张图片")
                 self.file_count_label.setStyleSheet("color: #28a745; font-weight: bold;")
                 self.update_generation_count()
                 self.add_status(f"从文件夹选择了 {len(image_files)} 张图片")
@@ -411,16 +469,16 @@ class UnifiedBatchDialog(QDialog):
         # 确认对话框
         message = f"""多规格批量生成确认
 
-📊 处理统计:
+处理统计:
 • 输入图片: {image_count} 张
 • 每张生成: {len(selected_specs)} 规格 × {len(selected_colors)} 颜色 = {per_image} 张
 • 总输出: {total} 张照片
 
-📋 选中规格: {', '.join(selected_specs[:3])}{'...' if len(selected_specs) > 3 else ''}
-🎨 选中颜色: {', '.join(selected_colors[:3])}{'...' if len(selected_colors) > 3 else ''}
+选中规格: {', '.join(selected_specs[:3])}{'...' if len(selected_specs) > 3 else ''}
+选中颜色: {', '.join(selected_colors[:3])}{'...' if len(selected_colors) > 3 else ''}
 
-⏱️ 预计耗时: {total * 3 // 60} 分钟
-💾 存储空间: {total * 0.4:.0f} MB
+预计耗时: {total * 3 // 60} 分钟
+存储空间: {total * 0.4:.0f} MB
 
 确定要开始处理吗？"""
         
@@ -450,7 +508,12 @@ class UnifiedBatchDialog(QDialog):
                 'background_mode': 'hifi' if self.bg_mode_combo.currentIndex() == 1 else 'refined',
                 'alpha_matting': self.alpha_matting_check.isChecked(),
                 'beautify_enabled': self.beautify_check.isChecked(),
+                'beautify_strength': self.beautify_strength_spin.value() / 100.0,
                 'brightness': self.brightness_spin.value(),
+                'contrast': self.contrast_spin.value(),
+                'gradient_enabled': self.gradient_check.isChecked(),
+                'texture_enabled': self.texture_check.isChecked(),
+                'blur_enabled': self.blur_check.isChecked(),
             }
             self.batch_processor.set_batch_params(batch_params)
             
@@ -470,68 +533,64 @@ class UnifiedBatchDialog(QDialog):
                 self.stop_btn.setEnabled(False)
                 self.progress_bar.setVisible(False)
     
-    def stop_processing(self):
-        """停止处理"""
-        self.batch_processor.stop_batch_processing()
-        self.add_status("处理已停止")
-        self.start_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
-    
     def on_progress_update(self, current, total, current_file):
-        """进度更新回调"""
-        # current 和 total 是原始图片的数量（0/3, 1/3, 2/3）
-        # 但我们需要显示生成的照片总数的进度
-        
-        # 计算已处理的照片总数
-        # 每处理完一张原始图片，就生成了 per_image_count 张照片
-        if hasattr(self, 'per_image_count') and hasattr(self, 'total_photos'):
-            # 已完成的原始图片数 × 每张生成的照片数
-            completed_photos = current * self.per_image_count
+        """进度更新回调 - 发射信号"""
+        self.progress_signal.emit(current, total, current_file)
+    
+    def _safe_update_progress(self, current, total, current_file):
+        """安全的进度更新（在主线程中执行）"""
+        try:
+            # 计算已处理的照片总数
+            if hasattr(self, 'per_image_count') and hasattr(self, 'total_photos'):
+                completed_photos = current * self.per_image_count
+                self.progress_bar.setMaximum(self.total_photos)
+                self.progress_bar.setValue(completed_photos)
+                percentage = (completed_photos / self.total_photos * 100) if self.total_photos > 0 else 0
+                self.progress_bar.setFormat(f"处理中... {percentage:.1f}% ({completed_photos}/{self.total_photos})")
+            else:
+                self.progress_bar.setMaximum(total)
+                self.progress_bar.setValue(current)
+                percentage = (current / total * 100) if total > 0 else 0
+                self.progress_bar.setFormat(f"处理中... {percentage:.1f}% ({current}/{total})")
             
-            # 更新进度条
-            self.progress_bar.setMaximum(self.total_photos)
-            self.progress_bar.setValue(completed_photos)
-            
-            # 计算进度百分比
-            percentage = (completed_photos / self.total_photos * 100) if self.total_photos > 0 else 0
-            self.progress_bar.setFormat(f"处理中... {percentage:.1f}% ({completed_photos}/{self.total_photos})")
-        else:
-            # 备用方案：如果没有保存总数，使用原始进度
-            self.progress_bar.setMaximum(total)
-            self.progress_bar.setValue(current)
-            percentage = (current / total * 100) if total > 0 else 0
-            self.progress_bar.setFormat(f"处理中... {percentage:.1f}% ({current}/{total})")
-        
-        # 更新当前文件信息
-        filename = os.path.basename(current_file) if current_file else "未知"
-        self.add_status(f"[{current+1}/{total}] 处理中: {filename}")
+            filename = os.path.basename(current_file) if current_file else "未知"
+            self.add_status(f"[{current+1}/{total}] 处理中: {filename}")
+        except Exception as e:
+            print(f"[ERROR] 更新进度失败: {e}")
     
     def on_status_update(self, message, level):
-        """状态更新回调"""
-        # 根据级别添加前缀
-        prefix_map = {
-            'info': '✓',
-            'warning': '⚠',
-            'error': '✗',
-            'success': '✓'
-        }
-        prefix = prefix_map.get(level, '•')
-        
-        # 添加到状态文本
-        self.add_status(f"{prefix} {message}")
-        
-        # 如果处理完成，更新按钮状态和进度条
-        if level == 'success' or '完成' in message:
-            self.start_btn.setEnabled(True)
-            self.stop_btn.setEnabled(False)
+        """状态更新回调 - 发射信号"""
+        self.status_signal.emit(message, level)
+    
+    def _safe_update_status(self, message, level):
+        """安全的状态更新（在主线程中执行）"""
+        try:
+            # 根据级别添加前缀
+            prefix_map = {
+                'info': '[INFO]',
+                'warning': '[WARN]',
+                'error': '[ERROR]',
+                'success': '[OK]'
+            }
+            prefix = prefix_map.get(level, '[*]')
             
-            # 将进度条设置为 100%
-            if hasattr(self, 'total_photos'):
-                self.progress_bar.setMaximum(self.total_photos)
-                self.progress_bar.setValue(self.total_photos)
-                self.progress_bar.setFormat(f"处理完成！ 100% ({self.total_photos}/{self.total_photos})")
-            else:
-                self.progress_bar.setFormat("处理完成！")
+            # 添加到状态文本
+            self.add_status(f"{prefix} {message}")
+            
+            # 如果处理完成，更新按钮状态和进度条
+            if level == 'success' or '完成' in message:
+                self.start_btn.setEnabled(True)
+                self.stop_btn.setEnabled(False)
+                
+                # 将进度条设置为 100%
+                if hasattr(self, 'total_photos'):
+                    self.progress_bar.setMaximum(self.total_photos)
+                    self.progress_bar.setValue(self.total_photos)
+                    self.progress_bar.setFormat(f"处理完成！ 100% ({self.total_photos}/{self.total_photos})")
+                else:
+                    self.progress_bar.setFormat("处理完成！")
+        except Exception as e:
+            print(f"[ERROR] 更新状态失败: {e}")
     
     def stop_processing(self):
         """停止处理"""

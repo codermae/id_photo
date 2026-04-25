@@ -21,6 +21,7 @@ class ImageProcessor:
         self.quality_score = 0
         self.ai_processor = ai_processor  # AI 处理器
         self.beautify_strength = 1.0  # 美颜强度 (0.0-2.0)
+        self.current_mask = None  # 保存当前的人物mask（用于高级背景效果）
         
         # 新增的高级处理器
         self.smart_cropper = SmartCropper()
@@ -159,6 +160,12 @@ class ImageProcessor:
             )
             
             self.current_image = result_image
+            
+            # 保存mask供高级背景效果使用
+            if 'mask' in process_info:
+                self.current_mask = process_info['mask']
+                print(f"[DEBUG] 保存mask，尺寸: {self.current_mask.shape}")
+            
             self._add_to_history(f"背景替换为{color_name}")
             
             return True, process_info
@@ -246,7 +253,7 @@ class ImageProcessor:
             return False
 
         try:
-            self.realtime_adjuster.adjust_contrast(value)
+            self.realtime_adjuster.adjust_contrast(value)  # 直接传递值
             self.current_image = self.realtime_adjuster.get_current_image()
             return True
         except Exception as e:

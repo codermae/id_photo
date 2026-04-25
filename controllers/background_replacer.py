@@ -26,7 +26,11 @@ class PreciseBackgroundReplacer:
             '蓝色': (67, 142, 219),
             '浅蓝色': (173, 216, 230),
             '灰色': (192, 192, 192),
-            '浅灰色': (220, 220, 220)
+            '浅灰色': (220, 220, 220),
+            # 国际标准背景色
+            '美国护照蓝': (51, 122, 183),
+            '泰国签证蓝': (65, 105, 225),
+            '欧盟护照灰': (240, 240, 240)
         }
         
         # 肤色检测范围 (HSV)
@@ -42,6 +46,9 @@ class PreciseBackgroundReplacer:
         self.rembg = None
         self.rembg_session = None
         self._rembg_initialized = False
+        
+        # 保存最后生成的mask（用于高级背景效果）
+        self.last_mask = None
     
     def _ensure_rembg_initialized(self):
         """确保rembg已初始化（延迟加载）"""
@@ -1295,7 +1302,8 @@ class PreciseBackgroundReplacer:
                 'background_color': bg_color,
                 'edge_refined': True,
                 'color_stable': True,
-                'mask_quality': self._evaluate_mask_quality(final_mask)
+                'mask_quality': self._evaluate_mask_quality(final_mask),
+                'mask': final_mask  # 保存mask供后续使用
             }
             
             print("[INFO] 改进精细模式处理完成")
@@ -2435,7 +2443,7 @@ class PreciseBackgroundReplacer:
 
         Args:
             image: 输入图像
-            bg_color: 背景颜色（颜色名称字符串或 BGR tuple）
+            bg_color: 背景颜色（颜色名称字符串或 RGB tuple）
             beautify_options: 美颜开关
             beautify_strengths: 美颜强度
             use_gfpgan: 是否启用 GFPGAN 增强
@@ -2443,13 +2451,20 @@ class PreciseBackgroundReplacer:
         Returns:
             (处理后图像, 处理信息)
         """
-        # 解析颜色
+        # 解析颜色 - 从 RGB 转换为 BGR
         if isinstance(bg_color, str):
             if bg_color not in self.background_colors:
                 raise ValueError(f"不支持的背景颜色: {bg_color}")
             bg_rgb = self.background_colors[bg_color]
+            print(f"[DEBUG] 背景色 '{bg_color}' -> RGB {bg_rgb}")
         else:
+            # 假设传入的是 RGB 格式
             bg_rgb = bg_color
+            print(f"[DEBUG] 背景色 (直接传入) -> RGB {bg_rgb}")
+        
+        # RGB 转换为 BGR（OpenCV 使用 BGR 格式）
+        bg_bgr = (bg_rgb[2], bg_rgb[1], bg_rgb[0])
+        print(f"[DEBUG] 背景色 RGB {bg_rgb} -> BGR {bg_bgr}")
 
         # 懒加载 HiFi 管线
         if not hasattr(self, '_hifi_pipeline') or self._hifi_pipeline is None:
@@ -2459,10 +2474,10 @@ class PreciseBackgroundReplacer:
 
         result, info = self._hifi_pipeline.process(
             image,
-            bg_color=bg_rgb,
+            bg_color=bg_bgr,  # 确保传入 BGR 格式
             beautify_options=beautify_options or {},
             beautify_strengths=beautify_strengths or {},
-            use_gfpgan=use_gfpgan,
+            use_codeformer=use_gfpgan,
         )
         info['method_used'] = 'hifi_pipeline'
         info['pipeline_status'] = self._hifi_pipeline.get_status()

@@ -273,15 +273,23 @@ class AdvancedBeautify:
         # 只在皮肤区域进行磨皮
         skin_only_mask = cv2.bitwise_and(face_mask, cv2.bitwise_not(protect_mask))
         
-        # 更强的双边滤波磨皮
+        # 改进的双边滤波参数 - 确保效果明显
         smooth_strength = self.strength_settings['smooth_strength']
-        d = int(25 * smooth_strength)  # 增大核大小
-        sigma_color = int(120 * smooth_strength)  # 增大颜色标准差
-        sigma_space = int(120 * smooth_strength)  # 增大空间标准差
+        
+        # 核大小：9-35（确保最小值也有效果）
+        d = max(9, int(15 + 20 * smooth_strength))
+        
+        # 颜色标准差：调整为更温和的范围 30-100
+        sigma_color = max(30, int(40 + 60 * smooth_strength))
+        
+        # 空间标准差：调整为更温和的范围 30-100
+        sigma_space = max(30, int(40 + 60 * smooth_strength))
+        
+        # 迭代次数：1-3次（减少迭代避免过度平滑）
+        iterations = max(1, int(1 + smooth_strength * 2))
         
         # 多次双边滤波以获得更好的磨皮效果
         smoothed = image.copy()
-        iterations = max(1, int(smooth_strength * 3))  # 根据强度决定迭代次数
         
         for i in range(iterations):
             smoothed = cv2.bilateralFilter(smoothed, d, sigma_color, sigma_space)
@@ -290,13 +298,16 @@ class AdvancedBeautify:
         result = image.copy().astype(np.float32)
         mask_norm = skin_only_mask.astype(np.float32) / 255.0
         
+        # 温和的混合强度 - 避免过度处理
+        blend_strength = min(0.8, smooth_strength * 1.0)  # 降低混合强度上限
+        
         for c in range(3):
             result[:, :, c] = (
-                image[:, :, c].astype(np.float32) * (1 - mask_norm * smooth_strength) +
-                smoothed[:, :, c].astype(np.float32) * (mask_norm * smooth_strength)
+                image[:, :, c].astype(np.float32) * (1 - mask_norm * blend_strength) +
+                smoothed[:, :, c].astype(np.float32) * (mask_norm * blend_strength)
             )
         
-        print(f"[DEBUG] 磨皮处理 - 迭代次数: {iterations}, 核大小: {d}, 强度: {smooth_strength}")
+        print(f"[DEBUG] 磨皮处理 - 迭代次数: {iterations}, 核大小: {d}, sigma: {sigma_color}/{sigma_space}, 强度: {smooth_strength}, 混合强度: {blend_strength:.2f}")
         
         return result.astype(np.uint8)
     

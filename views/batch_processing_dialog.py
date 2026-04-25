@@ -660,22 +660,13 @@ class BatchProcessingDialog(QDialog):
             else:
                 QMessageBox.warning(dialog, "警告", "请至少选择一个规格和一个颜色")
         
+    def add_status(self, message):
+        """添加状态信息"""
+        self.status_text.append(message)
+        scrollbar = self.status_text.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+    
     def closeEvent(self, event):
-        """关闭事件"""
-        if self.processing_thread and self.processing_thread.isRunning():
-            reply = QMessageBox.question(
-                self, "确认关闭", 
-                "批量处理正在进行中，确定要关闭吗？",
-                QMessageBox.Yes | QMessageBox.No
-            )
-            
-            if reply == QMessageBox.Yes:
-                self.stop_processing()
-                event.accept()
-            else:
-                event.ignore()
-        else:
-            event.accept()
         """关闭事件"""
         if self.processing_thread and self.processing_thread.isRunning():
             reply = QMessageBox.question(

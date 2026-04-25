@@ -349,36 +349,77 @@ class ImageHelper:
 
     @staticmethod
     def get_image_quality_score(image):
-        """计算图像质量评分 (0-100)"""
-        score = 0
-        
-        # 清晰度检测（拉普拉斯算子）
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-        sharpness_score = min(100, int(laplacian_var / 5))
-        score += sharpness_score * 0.4
-        
-        # 光照均匀度检测
-        brightness = np.mean(gray)
-        if 50 < brightness < 200:
-            brightness_score = 100
-        elif 30 < brightness < 220:
-            brightness_score = 80
-        else:
-            brightness_score = 50
-        score += brightness_score * 0.3
-        
-        # 对比度检测
-        contrast = np.std(gray)
-        if contrast > 50:
-            contrast_score = 100
-        elif contrast > 30:
-            contrast_score = 80
-        else:
-            contrast_score = 50
-        score += contrast_score * 0.3
-        
-        return int(score)
+        """计算图像质量评分 (0-100) - 返回详细指标"""
+        try:
+            # 清晰度检测（拉普拉斯算子）
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+            sharpness_score = min(100, int(laplacian_var / 5))
+            
+            # 亮度检测 - 最佳范围 100-150
+            brightness = np.mean(gray)
+            if 100 <= brightness <= 150:
+                brightness_score = 100
+            elif 80 <= brightness <= 170:
+                brightness_score = 85
+            elif 60 <= brightness <= 190:
+                brightness_score = 70
+            elif 40 <= brightness <= 210:
+                brightness_score = 50
+            else:
+                brightness_score = 30
+            
+            # 对比度检测 - 最佳范围 60-80
+            contrast = np.std(gray)
+            if 60 <= contrast <= 80:
+                contrast_score = 100
+            elif 50 <= contrast <= 90:
+                contrast_score = 85
+            elif 40 <= contrast <= 100:
+                contrast_score = 70
+            elif 30 <= contrast <= 110:
+                contrast_score = 50
+            else:
+                contrast_score = 30
+            
+            # 综合评分
+            overall_score = int(sharpness_score * 0.4 + brightness_score * 0.3 + contrast_score * 0.3)
+            
+            # 调试输出
+            print(f"[DEBUG] 质量评分计算:")
+            print(f"  - 拉普拉斯方差: {laplacian_var:.2f}")
+            print(f"  - 清晰度: {sharpness_score}")
+            print(f"  - 亮度值: {brightness:.2f} (最佳范围: 100-150)")
+            print(f"  - 亮度评分: {brightness_score}")
+            print(f"  - 对比度值: {contrast:.2f} (最佳范围: 60-80)")
+            print(f"  - 对比度评分: {contrast_score}")
+            print(f"  - 综合评分: {overall_score}")
+            
+            # 返回详细指标
+            return {
+                'overall_score': overall_score,
+                'sharpness': sharpness_score,
+                'brightness': brightness_score,
+                'contrast': contrast_score
+            }
+        except Exception as e:
+            print(f"[ERROR] 质量评分计算失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                'overall_score': 0,
+                'sharpness': 0,
+                'brightness': 0,
+                'contrast': 0
+            }
+    
+    @staticmethod
+    def get_image_quality_score_simple(image):
+        """获取简单的质量评分（向后兼容）"""
+        result = ImageHelper.get_image_quality_score(image)
+        if isinstance(result, dict):
+            return result['overall_score']
+        return result
 
     @staticmethod
     def crop_to_spec(image, spec='一寸', face_landmarks=None):
