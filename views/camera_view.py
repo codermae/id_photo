@@ -346,24 +346,24 @@ class CameraView(QWidget):
         adjust_group.setLayout(adjust_layout)
         right_layout.addWidget(adjust_group)
         
-        # 美颜处理
-        beautify_group = QGroupBox("美颜处理")
-        beautify_layout = QVBoxLayout()
-        
-        beautify_strength_layout = QHBoxLayout()
-        beautify_strength_layout.addWidget(QLabel("美颜强度:"))
-        self.beautify_strength_slider = QSlider(Qt.Horizontal)
-        self.beautify_strength_slider.setRange(0, 200)
-        self.beautify_strength_slider.setValue(0)  # 改为 0
-        self.beautify_strength_label = QLabel("0.0x")  # 改为 0.0x
-        self.beautify_strength_label.setMinimumWidth(40)
-        self.beautify_strength_slider.valueChanged.connect(self.on_beautify_strength_changed)
-        beautify_strength_layout.addWidget(self.beautify_strength_slider)
-        beautify_strength_layout.addWidget(self.beautify_strength_label)
-        beautify_layout.addLayout(beautify_strength_layout)
-        
-        beautify_group.setLayout(beautify_layout)
-        right_layout.addWidget(beautify_group)
+        # 美颜处理 - 已注释（暂时禁用）
+        # beautify_group = QGroupBox("美颜处理")
+        # beautify_layout = QVBoxLayout()
+        # 
+        # beautify_strength_layout = QHBoxLayout()
+        # beautify_strength_layout.addWidget(QLabel("美颜强度:"))
+        # self.beautify_strength_slider = QSlider(Qt.Horizontal)
+        # self.beautify_strength_slider.setRange(0, 200)
+        # self.beautify_strength_slider.setValue(0)  # 改为 0
+        # self.beautify_strength_label = QLabel("0.0x")  # 改为 0.0x
+        # self.beautify_strength_label.setMinimumWidth(40)
+        # self.beautify_strength_slider.valueChanged.connect(self.on_beautify_strength_changed)
+        # beautify_strength_layout.addWidget(self.beautify_strength_slider)
+        # beautify_strength_layout.addWidget(self.beautify_strength_label)
+        # beautify_layout.addLayout(beautify_strength_layout)
+        # 
+        # beautify_group.setLayout(beautify_layout)
+        # right_layout.addWidget(beautify_group)
         
         # 拍照按钮
         photo_group = QGroupBox("拍照")
@@ -565,9 +565,97 @@ class CameraView(QWidget):
         self.display_frame(frame)
 
     def display_frame(self, frame):
-        """显示帧"""
+        """显示帧 - 包含人脸检测框和关键点"""
         try:
-            rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            display_frame = frame.copy()
+            
+            # 检测人脸并绘制检测框
+            try:
+                faces = self.ai_processor.detect_faces(frame)
+                
+                if faces:
+                    for face in faces:
+                        x, y, w, h = face['box']
+                        confidence = face.get('confidence', 0)
+                        landmarks = face.get('landmarks', None)
+                        
+                        # 绘制人脸边界框（绿色）
+                        cv2.rectangle(display_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                        
+                        # 绘制置信度文本
+                        confidence_text = f"Conf: {confidence:.2f}"
+                        cv2.putText(display_frame, confidence_text, (x, y - 10),
+                                  cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                        
+                        # 绘制人脸关键点（468个点）
+                        if landmarks:
+                            # 关键点分类
+                            # 0-16: 脸部轮廓
+                            # 17-21: 左眉毛
+                            # 22-26: 右眉毛
+                            # 27-30: 鼻子
+                            # 31-35: 左眼
+                            # 36-41: 右眼
+                            # 42-47: 嘴巴
+                            # 48-67: 嘴唇
+                            # 68-127: 脸部其他部位
+                            
+                            # 绘制所有关键点（小圆点）
+                            for i, (lx, ly) in enumerate(landmarks):
+                                # 根据关键点类型使用不同颜色
+                                if 0 <= i <= 16:  # 脸部轮廓 - 蓝色
+                                    color = (255, 0, 0)
+                                    radius = 2
+                                elif 17 <= i <= 26:  # 眉毛 - 绿色
+                                    color = (0, 255, 0)
+                                    radius = 2
+                                elif 27 <= i <= 30:  # 鼻子 - 红色
+                                    color = (0, 0, 255)
+                                    radius = 3
+                                elif 31 <= i <= 35 or 36 <= i <= 41:  # 眼睛 - 黄色
+                                    color = (0, 255, 255)
+                                    radius = 3
+                                elif 42 <= i <= 67:  # 嘴巴 - 紫色
+                                    color = (255, 0, 255)
+                                    radius = 2
+                                else:  # 其他 - 灰色
+                                    color = (128, 128, 128)
+                                    radius = 1
+                                
+                                cv2.circle(display_frame, (lx, ly), radius, color, -1)
+                            
+                            # 绘制关键部位的连接线（可选）
+                            # 绘制眼睛轮廓
+                            left_eye = landmarks[31:36]  # 左眼
+                            right_eye = landmarks[36:41]  # 右眼
+                            
+                            if len(left_eye) >= 2:
+                                for i in range(len(left_eye) - 1):
+                                    cv2.line(display_frame, left_eye[i], left_eye[i+1], (0, 255, 255), 1)
+                                cv2.line(display_frame, left_eye[-1], left_eye[0], (0, 255, 255), 1)
+                            
+                            if len(right_eye) >= 2:
+                                for i in range(len(right_eye) - 1):
+                                    cv2.line(display_frame, right_eye[i], right_eye[i+1], (0, 255, 255), 1)
+                                cv2.line(display_frame, right_eye[-1], right_eye[0], (0, 255, 255), 1)
+                            
+                            # 绘制嘴巴轮廓
+                            mouth = landmarks[48:68]
+                            if len(mouth) >= 2:
+                                for i in range(len(mouth) - 1):
+                                    cv2.line(display_frame, mouth[i], mouth[i+1], (255, 0, 255), 1)
+                                cv2.line(display_frame, mouth[-1], mouth[0], (255, 0, 255), 1)
+                            
+                            # 绘制鼻子轮廓
+                            nose = landmarks[27:31]
+                            if len(nose) >= 2:
+                                for i in range(len(nose) - 1):
+                                    cv2.line(display_frame, nose[i], nose[i+1], (0, 0, 255), 1)
+            except Exception as e:
+                print(f"[DEBUG] 绘制人脸检测框失败: {e}")
+            
+            # 转换为RGB并显示
+            rgb_image = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
             h, w, ch = rgb_image.shape
             bytes_per_line = 3 * w
             qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
@@ -829,10 +917,10 @@ class CameraView(QWidget):
         if self.camera:
             self.camera.set_contrast(value)  # 直接传递值
 
-    def on_beautify_strength_changed(self, value):
-        """美颜强度改变"""
-        strength = value / 100.0
-        self.beautify_strength_label.setText(f"{strength:.1f}x")
+    # def on_beautify_strength_changed(self, value):
+    #     """美颜强度改变 - 已注释（暂时禁用）"""
+    #     strength = value / 100.0
+    #     self.beautify_strength_label.setText(f"{strength:.1f}x")
 
     def cleanup(self):
         """清理资源"""

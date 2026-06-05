@@ -51,7 +51,7 @@ class PreciseBackgroundReplacer:
         self.last_mask = None
     
     def _ensure_rembg_initialized(self):
-        """确保rembg已初始化（延迟加载）"""
+        """确保rembg已初始化（延迟加载）- 支持GPU加速"""
         if self._rembg_initialized:
             return
         
@@ -61,6 +61,33 @@ class PreciseBackgroundReplacer:
             print("[DEBUG] 开始初始化rembg模型...")
             import time
             start_time = time.time()
+            
+            # 导入配置
+            try:
+                from config.config import USE_GPU, GPU_DEVICE_ID, AUTO_FALLBACK_TO_CPU
+            except ImportError:
+                USE_GPU = True
+                GPU_DEVICE_ID = 0
+                AUTO_FALLBACK_TO_CPU = True
+            
+            # 检测GPU可用性（在重定向之前）
+            gpu_available = False
+            device_info = "CPU"
+            
+            if USE_GPU:
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        gpu_available = True
+                        device_info = f"GPU (CUDA {torch.version.cuda}, Device {GPU_DEVICE_ID})"
+                        # 设置GPU设备
+                        import os
+                        os.environ['CUDA_VISIBLE_DEVICES'] = str(GPU_DEVICE_ID)
+                        print(f"[DEBUG] 检测到GPU，将使用GPU加速")
+                    else:
+                        print(f"[DEBUG] 未检测到GPU，将使用CPU")
+                except Exception as e:
+                    print(f"[DEBUG] GPU检测失败: {e}，将使用CPU")
             
             # 完全静默导入，避免子进程中的任何输出
             import sys
@@ -79,8 +106,30 @@ class PreciseBackgroundReplacer:
                 import rembg
                 self.rembg = rembg
                 
-                print("[DEBUG] 正在加载U2-Net模型，请稍候...")
-                self.rembg_session = rembg.new_session('u2net')  # 使用U2-Net模型
+                # 创建rembg session，优先使用GPU
+                if gpu_available:
+                    try:
+                        # 尝试使用GPU（CUDA Execution Provider）
+                        self.rembg_session = rembg.new_session(
+                            'u2net',
+                            providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
+                        )
+                    except Exception as e:
+                        if AUTO_FALLBACK_TO_CPU:
+                            self.rembg_session = rembg.new_session(
+                                'u2net',
+                                providers=['CPUExecutionProvider']
+                            )
+                            device_info = "CPU (GPU fallback)"
+                        else:
+                            raise
+                else:
+                    # 使用CPU
+                    self.rembg_session = rembg.new_session(
+                        'u2net',
+                        providers=['CPUExecutionProvider']
+                    )
+                
                 self.rembg_available = True
                 
                 # 恢复输出
@@ -90,7 +139,7 @@ class PreciseBackgroundReplacer:
                 sys.stdout = old_stdout
                 
                 elapsed_time = time.time() - start_time
-                print(f"[INFO] rembg (U2-Net) 已启用，模型加载耗时: {elapsed_time:.2f}秒")
+                print(f"[INFO] rembg (U2-Net) 已启用，运行设备: {device_info}，模型加载耗时: {elapsed_time:.2f}秒")
             except:
                 # 恢复输出
                 if sys.stderr != old_stderr:
@@ -193,7 +242,7 @@ class PreciseBackgroundReplacer:
                       expand_pixels: int = 0, smooth_edges: bool = False,
                       use_alpha_matting: bool = True) -> np.ndarray:
         """
-        使用rembg进行AI抠图 - 优化版，支持Alpha Matte
+        使用rembg进行AI抠图 - 优化版，支持Alpha Matte和GPU加速
         
         Args:
             image: 输入图像
@@ -205,22 +254,79 @@ class PreciseBackgroundReplacer:
         try:
             from PIL import Image
             
+            # GPU内存管理
+            try:
+                from config.config import USE_GPU, AUTO_FALLBACK_TO_CPU
+            except ImportError:
+                USE_GPU = True
+                AUTO_FALLBACK_TO_CPU = True
+            
+            if USE_GPU:
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        # 清理GPU缓存，避免内存不足
+                        torch.cuda.empty_cache()
+                except:
+                    pass
+            
             # 转换为PIL图像
             pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
             
-            # AI抠图 - 使用U2-Net模型，启用Alpha Matte提升边缘质量
-            # 优化参数：针对人像优化
-            if use_alpha_matting:
-                output = self.rembg.remove(
-                    pil_image, 
-                    session=self.rembg_session,
-                    alpha_matting=True,
-                    alpha_matting_foreground_threshold=235,
-                    alpha_matting_background_threshold=5,
-                    alpha_matting_erode_size=15
-                )
-            else:
-                output = self.rembg.remove(pil_image, session=self.rembg_session)
+            try:
+                # AI抠图 - 使用U2-Net模型，启用Alpha Matte提升边缘质量
+                # 优化参数：针对人像优化
+                if use_alpha_matting:
+                    output = self.rembg.remove(
+                        pil_image, 
+                        session=self.rembg_session,
+                        alpha_matting=True,
+                        alpha_matting_foreground_threshold=235,
+                        alpha_matting_background_threshold=5,
+                        alpha_matting_erode_size=15
+                    )
+                else:
+                    output = self.rembg.remove(pil_image, session=self.rembg_session)
+                    
+            except RuntimeError as e:
+                # 处理GPU内存不足的情况
+                if "out of memory" in str(e).lower() or "cuda" in str(e).lower():
+                    print(f"[WARNING] GPU内存不足: {e}")
+                    
+                    if AUTO_FALLBACK_TO_CPU:
+                        print("[INFO] 自动降级到CPU处理...")
+                        
+                        # 清理GPU内存
+                        try:
+                            import torch
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                        except:
+                            pass
+                        
+                        # 重新创建CPU session
+                        import rembg
+                        self.rembg_session = rembg.new_session(
+                            'u2net',
+                            providers=['CPUExecutionProvider']
+                        )
+                        
+                        # 使用CPU重试
+                        if use_alpha_matting:
+                            output = self.rembg.remove(
+                                pil_image, 
+                                session=self.rembg_session,
+                                alpha_matting=True,
+                                alpha_matting_foreground_threshold=235,
+                                alpha_matting_background_threshold=5,
+                                alpha_matting_erode_size=15
+                            )
+                        else:
+                            output = self.rembg.remove(pil_image, session=self.rembg_session)
+                    else:
+                        raise
+                else:
+                    raise
             
             # 转换回OpenCV格式并提取alpha通道作为mask
             output_array = np.array(output)
@@ -340,7 +446,8 @@ class PreciseBackgroundReplacer:
         return hair_mask, body_mask
     
     def _rembg_replace_background(self, image: np.ndarray, bg_color: Tuple[int, int, int], 
-                                 refine_edges: bool = False, expand_pixels: int = 0) -> Tuple[np.ndarray, Dict]:
+                                 refine_edges: bool = False, expand_pixels: int = 0, 
+                                 use_alpha_matting: bool = True) -> Tuple[np.ndarray, Dict]:
         """
         使用rembg进行完整的背景替换 - 直接使用原始输出
         
@@ -349,6 +456,7 @@ class PreciseBackgroundReplacer:
             bg_color: 背景颜色
             refine_edges: 是否进行边缘优化（默认False，直接用原始）
             expand_pixels: 边缘扩展像素数（默认0，不调整）
+            use_alpha_matting: 是否启用Alpha Matte（默认True，提升边缘质量）
         """
         import time
         start_time = time.time()

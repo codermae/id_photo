@@ -1244,8 +1244,11 @@ class ProcessView(QWidget):
             dialog = CropDialog(self.processor.current_image, self)
             
             # 设置当前选择的规格
-            selected_specs = [cb.spec_name for cb in self.spec_checkboxes.values() if cb.isChecked()]
-            current_spec = selected_specs[0] if selected_specs else "一寸"
+            current_spec = "一寸"
+            for rb in self.spec_radio_buttons.values():
+                if rb.isChecked():
+                    current_spec = rb.spec_name
+                    break
             dialog.spec_combo.setCurrentText(current_spec)
             
             if dialog.exec_() == QDialog.Accepted:

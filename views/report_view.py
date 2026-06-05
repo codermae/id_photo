@@ -27,24 +27,36 @@ class DataWorker(QThread):
         total_users = len(users)
         total_photos = sum(len(self.db.get_photos_by_user(u.id)) for u in users)
         
-        # 使用数据库助手获取统计数据（与趋势图一致）
-        stats_data = self.db.get_collection_stats(self.sd, self.ed, self.cid)
+        # 统计各状态的用户数
+        completed = 0
+        processing = 0
+        pending = 0
+        no_record = 0
         
-        # 计算无记录用户数（有用户信息但没有采集记录）
-        no_record_count = 0
         for user in users:
             records = self.db.get_records_by_user(user.id)
             if not records:
-                no_record_count += 1
+                no_record += 1
+            else:
+                latest_rec = records[-1]
+                if latest_rec.status == 'completed':
+                    completed += 1
+                elif latest_rec.status == 'processing':
+                    processing += 1
+                elif latest_rec.status == 'pending':
+                    pending += 1
+        
+        # 计算完成率
+        completion_rate = (completed / total_users * 100) if total_users > 0 else 0
         
         stats = {
             'total': total_users,
             'photos': total_photos,
-            'completed': stats_data['completed'],
-            'processing': stats_data['processing'],
-            'pending': stats_data['pending'],
-            'no_record': no_record_count,
-            'rate': stats_data['completion_rate']
+            'completed': completed,
+            'processing': processing,
+            'pending': pending,
+            'no_record': no_record,
+            'rate': completion_rate
         }
 
         # 生成图表配置
@@ -433,11 +445,7 @@ class ReportView(QWidget):
                             '无记录',
                             '',
                             '采集记录总数',
-                            '完成率',
-                            '',
-                            '男性人数',
-                            '女性人数',
-                            '性别比例'
+                            '完成率'
                         ],
                         '统计数值': [
                             self.combo.currentText(),
@@ -453,11 +461,7 @@ class ReportView(QWidget):
                             no_record,
                             '',
                             total_records,
-                            f'{completion_rate:.2f}%',
-                            '',
-                            gender_stats.get('男', 0),
-                            gender_stats.get('女', 0),
-                            f"{gender_stats.get('男', 0) / max(1, total_users) * 100:.1f}% : {gender_stats.get('女', 0) / max(1, total_users) * 100:.1f}%"
+                            f'{completion_rate:.2f}%'
                         ]
                     }
                     df_summary = pd.DataFrame(summary_data)

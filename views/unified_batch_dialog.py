@@ -216,19 +216,19 @@ class UnifiedBatchDialog(QDialog):
         self.alpha_matting_check.setChecked(True)
         options_layout.addWidget(self.alpha_matting_check, 0, 3)
         
-        # 美颜
-        self.beautify_check = QCheckBox("美颜")
-        self.beautify_check.setChecked(False)
-        self.beautify_check.stateChanged.connect(self.on_beautify_changed)
-        options_layout.addWidget(self.beautify_check, 1, 0)
-        
-        options_layout.addWidget(QLabel("强度:"), 1, 1)
-        self.beautify_strength_spin = QSpinBox()
-        self.beautify_strength_spin.setRange(0, 100)
-        self.beautify_strength_spin.setValue(30)
-        self.beautify_strength_spin.setSuffix("%")
-        self.beautify_strength_spin.setEnabled(False)
-        options_layout.addWidget(self.beautify_strength_spin, 1, 2)
+        # 美颜 - 已注释（暂时禁用）
+        # self.beautify_check = QCheckBox("美颜")
+        # self.beautify_check.setChecked(False)
+        # self.beautify_check.stateChanged.connect(self.on_beautify_changed)
+        # options_layout.addWidget(self.beautify_check, 1, 0)
+        # 
+        # options_layout.addWidget(QLabel("强度:"), 1, 1)
+        # self.beautify_strength_spin = QSpinBox()
+        # self.beautify_strength_spin.setRange(0, 100)
+        # self.beautify_strength_spin.setValue(30)
+        # self.beautify_strength_spin.setSuffix("%")
+        # self.beautify_strength_spin.setEnabled(False)
+        # options_layout.addWidget(self.beautify_strength_spin, 1, 2)
         
         # 亮度
         options_layout.addWidget(QLabel("亮度:"), 2, 0)
@@ -375,9 +375,9 @@ class UnifiedBatchDialog(QDialog):
         
         self.generation_info.setText(info_text)
     
-    def on_beautify_changed(self):
-        """美颜复选框改变时的处理"""
-        self.beautify_strength_spin.setEnabled(self.beautify_check.isChecked())
+    # def on_beautify_changed(self):
+    #     """美颜复选框改变时的处理 - 已注释（暂时禁用）"""
+    #     self.beautify_strength_spin.setEnabled(self.beautify_check.isChecked())
     
     def on_mode_changed(self):
         """背景模式改变时的处理"""
@@ -507,8 +507,8 @@ class UnifiedBatchDialog(QDialog):
                 'multi_colors': selected_colors,
                 'background_mode': 'hifi' if self.bg_mode_combo.currentIndex() == 1 else 'refined',
                 'alpha_matting': self.alpha_matting_check.isChecked(),
-                'beautify_enabled': self.beautify_check.isChecked(),
-                'beautify_strength': self.beautify_strength_spin.value() / 100.0,
+                'beautify_enabled': False,  # 美颜已禁用
+                'beautify_strength': 0.0,   # 美颜已禁用
                 'brightness': self.brightness_spin.value(),
                 'contrast': self.contrast_spin.value(),
                 'gradient_enabled': self.gradient_check.isChecked(),

@@ -68,21 +68,73 @@ class HiFiPipeline:
         }
 
     def _init_insightface(self):
-        """初始化 InsightFace - 人脸检测与身份特征提取"""
+        """初始化 InsightFace - 人脸检测与身份特征提取（支持GPU）"""
         try:
             from insightface.app import FaceAnalysis
-            app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
-            app.prepare(ctx_id=-1, det_thresh=0.5, det_size=(640, 640))
+            
+            # 检测GPU可用性
+            gpu_available = False
+            ctx_id = -1  # -1 表示CPU
+            
+            try:
+                from config.config import USE_GPU, GPU_DEVICE_ID
+            except ImportError:
+                USE_GPU = True
+                GPU_DEVICE_ID = 0
+            
+            if USE_GPU:
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        gpu_available = True
+                        ctx_id = GPU_DEVICE_ID
+                        print(f"[HiFi] 检测到GPU，InsightFace将使用GPU (Device {GPU_DEVICE_ID})")
+                except:
+                    pass
+            
+            if not gpu_available:
+                print("[HiFi] InsightFace将使用CPU")
+            
+            # 配置providers
+            if gpu_available:
+                providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+            else:
+                providers = ['CPUExecutionProvider']
+            
+            app = FaceAnalysis(name='buffalo_l', providers=providers)
+            app.prepare(ctx_id=ctx_id, det_thresh=0.5, det_size=(640, 640))
             self._insightface_app = app
             self._insightface_ok = True
-            print("[HiFi] ✓ InsightFace 加载成功（身份锁定）")
+            
+            device_info = f"GPU (Device {ctx_id})" if gpu_available else "CPU"
+            print(f"[HiFi] ✓ InsightFace 加载成功（身份锁定），运行设备: {device_info}")
         except Exception as e:
             print(f"[HiFi] ✗ InsightFace 加载失败: {e}")
             self._insightface_ok = False
 
     def _init_modnet(self):
-        """初始化 MODNet - 头发丝级人像抠图"""
+        """初始化 MODNet - 头发丝级人像抠图（支持GPU）"""
         try:
+            # 检测GPU可用性
+            gpu_available = False
+            try:
+                from config.config import USE_GPU, AUTO_FALLBACK_TO_CPU
+            except ImportError:
+                USE_GPU = True
+                AUTO_FALLBACK_TO_CPU = True
+            
+            if USE_GPU:
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        gpu_available = True
+                        print(f"[HiFi] 检测到GPU，rembg将使用GPU加速")
+                except:
+                    pass
+            
+            if not gpu_available:
+                print("[HiFi] rembg将使用CPU")
+            
             # 尝试导入 MODNet
             # 如果没有安装，降级使用 rembg
             try:
@@ -94,13 +146,22 @@ class HiFiPipeline:
             except ImportError:
                 # 降级到 rembg
                 import rembg
+                
+                # 配置providers
+                if gpu_available:
+                    providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+                else:
+                    providers = ['CPUExecutionProvider']
+                
                 # 优先使用 isnet-general-use（更精细）
                 try:
-                    session = rembg.new_session('isnet-general-use')
-                    print("[HiFi] ✓ rembg (isnet-general-use) 加载成功（MODNet 替代）")
+                    session = rembg.new_session('isnet-general-use', providers=providers)
+                    device_info = "GPU" if gpu_available else "CPU"
+                    print(f"[HiFi] ✓ rembg (isnet-general-use) 加载成功（MODNet 替代），运行设备: {device_info}")
                 except:
-                    session = rembg.new_session('u2net')
-                    print("[HiFi] ✓ rembg (u2net) 加载成功（MODNet 替代）")
+                    session = rembg.new_session('u2net', providers=providers)
+                    device_info = "GPU" if gpu_available else "CPU"
+                    print(f"[HiFi] ✓ rembg (u2net) 加载成功（MODNet 替代），运行设备: {device_info}")
                 
                 self._modnet = {'type': 'rembg', 'session': session, 'rembg': rembg}
                 self._modnet_ok = True

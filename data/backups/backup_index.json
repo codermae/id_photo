@@ -6,5 +6,13 @@
     "db_size": 479232,
     "photos_size": 47933586,
     "status": "completed"
+  },
+  "backup_20260602_220023": {
+    "name": "backup_20260602_220023",
+    "timestamp": "2026-06-02T22:00:23.815026",
+    "include_photos": true,
+    "db_size": 479232,
+    "photos_size": 13225488,
+    "status": "completed"
   }
 }

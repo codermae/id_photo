@@ -16,6 +16,7 @@ class AIProcessor:
         self.face_detector = None
         self.eye_cascade = None
         self.use_tflite = False
+        self.landmark_detector = None  # dlib 人脸关键点检测器
         
         # 检测稳定性机制
         self.detection_history = []  # 存储最近的检测结果
@@ -55,6 +56,9 @@ class AIProcessor:
         # 如果失败，使用 OpenCV
         if not self.use_tflite:
             self._init_opencv_cascade()
+        
+        # 初始化 dlib 人脸关键点检测器
+        self._init_dlib_landmark_detector()
 
     def _try_init_face_detection_tflite(self):
         """尝试初始化 face-detection-tflite 包 (fdlite)"""
@@ -119,6 +123,65 @@ class AIProcessor:
             self.face_cascade = None
             self.eye_cascade = None
 
+    def _init_dlib_landmark_detector(self):
+        """初始化人脸关键点检测器"""
+        try:
+            import dlib
+            import os
+            
+            # 尝试从 face_recognition_models 获取模型路径
+            try:
+                from face_recognition_models import face_recognition_model_location
+                models_dir = os.path.dirname(face_recognition_model_location())
+                model_path = os.path.join(models_dir, 'shape_predictor_68_face_landmarks.dat')
+                
+                if os.path.exists(model_path):
+                    self.landmark_detector = dlib.shape_predictor(model_path)
+                    self.use_face_recognition_landmarks = True
+                    print(f"[OK] dlib 人脸关键点检测器初始化成功 (68个关键点)")
+                    print(f"[INFO] 模型路径: {model_path}")
+                    return
+            except Exception as e:
+                print(f"[WARNING] 从 face_recognition_models 加载模型失败: {e}")
+            
+            # 如果上面失败，尝试其他方式
+            print("[WARNING] 未找到 dlib 预训练模型 - 将使用虚拟关键点")
+            self.landmark_detector = None
+            self.use_face_recognition_landmarks = False
+        except ImportError:
+            print("[WARNING] dlib 未安装 - 将使用虚拟关键点")
+            self.landmark_detector = None
+            self.use_face_recognition_landmarks = False
+        except Exception as e:
+            print(f"[WARNING] 关键点检测器初始化失败: {e} - 将使用虚拟关键点")
+            self.landmark_detector = None
+            self.use_face_recognition_landmarks = False
+
+    def _get_landmarks_from_dlib(self, image, face_box):
+        """使用 dlib 获取人脸关键点"""
+        try:
+            if self.landmark_detector is None:
+                return None
+            
+            import dlib
+            
+            x, y, w, h = face_box
+            # 创建 dlib 的矩形对象
+            dlib_rect = dlib.rectangle(x, y, x + w, y + h)
+            
+            # 检测关键点
+            landmarks = self.landmark_detector(image, dlib_rect)
+            
+            # 转换为坐标列表
+            landmark_points = []
+            for point in landmarks.parts():
+                landmark_points.append((point.x, point.y))
+            
+            return landmark_points if landmark_points else None
+        except Exception as e:
+            self._debug_print(f"[DEBUG] dlib 关键点检测失败: {e}")
+            return None
+
     def detect_face(self, image):
         """检测人脸 - 带稳定性机制"""
         if self.use_tflite and self.face_detector:
@@ -147,6 +210,152 @@ class AIProcessor:
         else:
             # 检测历史不足，直接返回当前结果
             return raw_result
+
+    def detect_faces(self, image):
+        """检测所有人脸 - 返回详细信息列表（用于绘制检测框和关键点）"""
+        try:
+            faces = []
+            h, w = image.shape[:2]
+            
+            # 使用 fdlite 检测人脸
+            if self.use_tflite and self.face_detector:
+                detections = self.face_detector(image)
+                
+                if detections and len(detections) > 0:
+                    min_confidence = 0.3
+                    
+                    for detection in detections:
+                        if detection.score >= min_confidence:
+                            bbox = detection.bbox
+                            
+                            # 转换坐标
+                            if bbox.normalized:
+                                x = int(bbox.xmin * w)
+                                y = int(bbox.ymin * h)
+                                x2 = int(bbox.xmax * w)
+                                y2 = int(bbox.ymax * h)
+                            else:
+                                x = int(bbox.xmin)
+                                y = int(bbox.ymin)
+                                x2 = int(bbox.xmax)
+                                y2 = int(bbox.ymax)
+                            
+                            width = x2 - x
+                            height = y2 - y
+                            
+                            # 验证检测框
+                            if width > 20 and height > 20 and width < w * 0.8 and height < h * 0.8:
+                                x = max(0, min(x, w - 1))
+                                y = max(0, min(y, h - 1))
+                                width = max(1, min(width, w - x))
+                                height = max(1, min(height, h - y))
+                                
+                                # 使用 dlib 获取关键点
+                                landmarks = self._get_landmarks_from_dlib(image, (x, y, width, height))
+                                
+                                # 如果 dlib 失败，生成虚拟关键点
+                                if not landmarks:
+                                    self._debug_print(f"[DEBUG] dlib 关键点检测失败，使用虚拟关键点")
+                                    landmarks = self._generate_virtual_landmarks(x, y, width, height)
+                                
+                                faces.append({
+                                    'box': (x, y, width, height),
+                                    'confidence': detection.score,
+                                    'landmarks': landmarks if landmarks else None
+                                })
+            else:
+                # 使用级联分类器
+                face = self.detect_face(image)
+                if face:
+                    x, y, width, height = face
+                    # 尝试使用 dlib 获取关键点
+                    landmarks = self._get_landmarks_from_dlib(image, (x, y, width, height))
+                    if not landmarks:
+                        landmarks = self._generate_virtual_landmarks(x, y, width, height)
+                    
+                    faces.append({
+                        'box': (x, y, width, height),
+                        'confidence': 0.5,
+                        'landmarks': landmarks
+                    })
+            
+            return faces
+        except Exception as e:
+            self._debug_print(f"检测人脸列表失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+    def _generate_virtual_landmarks(self, x, y, width, height):
+        """生成虚拟关键点（基于人脸框）- 68个点"""
+        landmarks = []
+        
+        # 脸部轮廓 (0-16) - 17个点
+        for i in range(17):
+            angle = i * (180 / 16)  # 从0到180度
+            rad = np.radians(angle)
+            px = int(x + width // 2 + (width // 2.2) * np.cos(rad))
+            py = int(y + height // 2 + (height // 2.5) * np.sin(rad))
+            landmarks.append((px, py))
+        
+        # 左眉毛 (17-21) - 5个点
+        for i in range(5):
+            px = int(x + width // 4 + (i * width // 20))
+            py = int(y + height // 4 - height // 10)
+            landmarks.append((px, py))
+        
+        # 右眉毛 (22-26) - 5个点
+        for i in range(5):
+            px = int(x + 3 * width // 4 - (i * width // 20))
+            py = int(y + height // 4 - height // 10)
+            landmarks.append((px, py))
+        
+        # 鼻子 (27-30) - 4个点
+        landmarks.append((int(x + width // 2), int(y + height // 3)))  # 鼻梁
+        landmarks.append((int(x + width // 2 - width // 10), int(y + height // 2)))  # 左鼻孔
+        landmarks.append((int(x + width // 2 + width // 10), int(y + height // 2)))  # 右鼻孔
+        landmarks.append((int(x + width // 2), int(y + height // 2 + height // 10)))  # 鼻尖
+        
+        # 左眼 (31-35) - 5个点
+        for i in range(5):
+            angle = i * (180 / 4)
+            rad = np.radians(angle)
+            px = int(x + width // 3 + (width // 8) * np.cos(rad))
+            py = int(y + height // 3 + (height // 12) * np.sin(rad))
+            landmarks.append((px, py))
+        
+        # 右眼 (36-41) - 6个点
+        for i in range(6):
+            angle = i * (180 / 5)
+            rad = np.radians(angle)
+            px = int(x + 2 * width // 3 + (width // 8) * np.cos(rad))
+            py = int(y + height // 3 + (height // 12) * np.sin(rad))
+            landmarks.append((px, py))
+        
+        # 嘴巴 (42-67) - 26个点
+        # 上嘴唇 (42-47)
+        for i in range(6):
+            px = int(x + width // 4 + (i * width // 12))
+            py = int(y + 2 * height // 3 - height // 15)
+            landmarks.append((px, py))
+        
+        # 下嘴唇 (48-53)
+        for i in range(6):
+            px = int(x + width // 4 + (i * width // 12))
+            py = int(y + 2 * height // 3 + height // 15)
+            landmarks.append((px, py))
+        
+        # 嘴唇内部 (54-67) - 14个点
+        for i in range(14):
+            if i < 7:
+                px = int(x + width // 3 + (i * width // 14))
+                py = int(y + 2 * height // 3)
+            else:
+                px = int(x + width // 3 + ((13 - i) * width // 14))
+                py = int(y + 2 * height // 3 + height // 20)
+            landmarks.append((px, py))
+        
+        return landmarks
 
     def _detect_face_tflite(self, image):
         """使用 fdlite (face-detection-tflite) 检测人脸"""

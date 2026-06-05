@@ -153,6 +153,9 @@ class EChartsGenerator:
         
         关系：采集率 ≥ 处理率 ≥ 完成率
         """
+        from datetime import timedelta
+        from models.record import CollectionRecord
+        
         dates = []
         completion_rates = []  # 完成率
         processing_rates = []  # 处理率
@@ -161,42 +164,48 @@ class EChartsGenerator:
         # 获取用户总数（包含无记录用户）
         total_users = db.get_user_count(collection_id)
         
+        if total_users == 0:
+            # 如果没有用户，返回空数据
+            return {
+                'title': {'text': '采集进度趋势', 'left': 'center'},
+                'tooltip': {'trigger': 'axis'},
+                'legend': {'data': ['完成率', '处理率', '采集率'], 'top': '30px'},
+                'xAxis': {'type': 'category', 'data': []},
+                'yAxis': {'type': 'value', 'min': 0, 'max': 100},
+                'series': []
+            }
+        
         current_date = start_date
         while current_date <= end_date:
             dates.append(current_date.strftime('%m-%d'))
             
             try:
-                # 基础查询
+                # 构建基础查询：截止到当前日期的所有记录
                 base_query = db.db.query(CollectionRecord).filter(
                     CollectionRecord.collection_date <= current_date
                 )
                 
+                # 如果指定了采集任务，只查询该任务的数据
                 if collection_id:
                     base_query = base_query.filter(CollectionRecord.collection_id == collection_id)
                 elif db.current_collection_id:
                     base_query = base_query.filter(CollectionRecord.collection_id == db.current_collection_id)
                 
-                # 1. 完成率：只统计已完成
-                completed_query = base_query.filter(CollectionRecord.status == 'completed')
-                cumulative_completed = completed_query.count()
-                completion_rate = (cumulative_completed / total_users * 100) if total_users > 0 else 0
+                # 获取所有记录
+                all_records = base_query.all()
                 
-                # 2. 处理率：统计已完成 + 待处理
-                processed_query = base_query.filter(
-                    CollectionRecord.status.in_(['completed', 'processing'])
-                )
-                cumulative_processed = processed_query.count()
-                processing_rate = (cumulative_processed / total_users * 100) if total_users > 0 else 0
+                # 统计各状态的记录数
+                cumulative_completed = len([r for r in all_records if r.status == 'completed'])
+                cumulative_processed = len([r for r in all_records if r.status in ['completed', 'processing']])
+                cumulative_collected = len([r for r in all_records if r.status in ['completed', 'processing', 'pending']])
                 
-                # 3. 采集率：统计已完成 + 待处理 + 待采集
-                collected_query = base_query.filter(
-                    CollectionRecord.status.in_(['completed', 'processing', 'pending'])
-                )
-                cumulative_collected = collected_query.count()
-                collection_rate = (cumulative_collected / total_users * 100) if total_users > 0 else 0
+                # 计算百分比
+                completion_rate = (cumulative_completed / total_users * 100)
+                processing_rate = (cumulative_processed / total_users * 100)
+                collection_rate = (cumulative_collected / total_users * 100)
                 
             except Exception as e:
-                print(f"[ERROR] 计算完成率失败: {e}")
+                print(f"[ERROR] 计算完成率失败 ({current_date}): {e}")
                 completion_rate = 0
                 processing_rate = 0
                 collection_rate = 0
@@ -207,7 +216,7 @@ class EChartsGenerator:
             current_date = current_date + timedelta(days=1)
         
         return {
-            'title': {'text': '采集进度趋势', 'left': 'center'},
+            'title': {'text': '采集进度趋势',  'left': 'center'},
             'tooltip': {
                 'trigger': 'axis',
                 'formatter': '{b}<br/>{a0}: {c0}%<br/>{a1}: {c1}%<br/>{a2}: {c2}%'

@@ -276,7 +276,9 @@ class MainWindow(QMainWindow):
         - Python 3.8+
         - PyQt5
         - OpenCV
-        - MediaPipe
+        - face-detection-tflite (BlazeFace)
+        - rembg (U2-Net)
+        - face-recognition (dlib)
         - SQLAlchemy
         
         开发者: 毕业设计项目
