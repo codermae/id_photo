@@ -7,24 +7,29 @@ import os
 # 设置环境变量以解决 TensorFlow 兼容性问题
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
-# 预加载rembg，避免在子进程中导入失败
-# 静默导入，抑制所有输出
-_old_stderr = sys.stderr
-_old_stdout = sys.stdout
-try:
-    sys.stderr = open(os.devnull, 'w')
-    sys.stdout = open(os.devnull, 'w')
-    import rembg
-    _rembg_preloaded = True
-except:
-    _rembg_preloaded = False
-finally:
-    if sys.stderr != _old_stderr:
-        sys.stderr.close()
-    if sys.stdout != _old_stdout:
-        sys.stdout.close()
-    sys.stderr = _old_stderr
-    sys.stdout = _old_stdout
+# 判断是否为打包版本
+IS_FROZEN = getattr(sys, 'frozen', False)
+
+# 只在非打包版本中预加载重型库
+if not IS_FROZEN:
+    # 预加载rembg，避免在子进程中导入失败
+    # 静默导入，抑制所有输出
+    _old_stderr = sys.stderr
+    _old_stdout = sys.stdout
+    try:
+        sys.stderr = open(os.devnull, 'w')
+        sys.stdout = open(os.devnull, 'w')
+        import rembg
+        _rembg_preloaded = True
+    except:
+        _rembg_preloaded = False
+    finally:
+        if sys.stderr != _old_stderr:
+            sys.stderr.close()
+        if sys.stdout != _old_stdout:
+            sys.stdout.close()
+        sys.stderr = _old_stderr
+        sys.stdout = _old_stdout
 
 from PyQt5.QtWidgets import QApplication
 from config.database import init_db
